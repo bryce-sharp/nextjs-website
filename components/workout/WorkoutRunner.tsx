@@ -23,6 +23,7 @@ import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import {
   buildSteps,
   clock,
+  formatDuration,
   parseLeadingInt,
   parseTips,
   SECTIONS,
@@ -88,10 +89,23 @@ function workKey(s: RunStep | undefined): string | null {
   return `${s.item.itemId}:${s.round ?? 0}:${s.side?.index ?? 0}`;
 }
 
-// The work step to re-anchor to from a given position: the current one if it's
-// work, else the next work step (e.g. when sitting on a "Get ready" gap that
-// won't exist in manual mode), else the previous.
+// Like workKey, but a between-rounds "Rest" (present in both modes) is keyed by
+// the work step it precedes. Lead-ins return null.
+function stepKey(steps: RunStep[], idx: number): string | null {
+  const s = steps[idx];
+  if (s?.kind === "rest" && s.label === "Rest") {
+    const next = steps.slice(idx + 1).find((x) => x.kind === "work");
+    return `rest>${workKey(next)}`;
+  }
+  return workKey(s);
+}
+
+// The step to re-anchor to from a given position: the current one if it's work
+// or a between-rounds rest, else the next work step (e.g. when sitting on a
+// "Get ready" gap that won't exist in manual mode), else the previous.
 function anchorKey(steps: RunStep[], idx: number): string | null {
+  const here = stepKey(steps, idx);
+  if (here) return here;
   for (let i = idx; i < steps.length; i++) {
     const k = workKey(steps[i]);
     if (k) return k;
@@ -411,22 +425,25 @@ export default function WorkoutRunner({
       anchorKeyRef.current = anchorKey(steps, stepIndex);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepIndex, started]);
+  }, [stepIndex, started, autoAdvance]);
 
-  // When the auto-advance toggle flips mid-run, `steps` is rebuilt (lead-ins
-  // appear/disappear). Re-anchor to the same exercise/side so the flip doesn't
-  // jump you around.
-  React.useEffect(() => {
-    if (!started || done) return;
-    const key = anchorKeyRef.current;
-    const target = key ? steps.findIndex((s) => workKey(s) === key) : -1;
-    if (target >= 0 && target !== stepIndex) {
-      setStepIndex(target); // triggers the init effect above
-    } else {
-      initStep(stepIndex); // same slot, new content (e.g. was a lead-in) → re-init
+  // Flipping auto-advance rebuilds `steps` (lead-ins appear/disappear), so the
+  // re-anchored index must land in the same update or a render indexes past the end.
+  const toggleAutoAdvance = (next: boolean) => {
+    if (started && !done) {
+      const nextSteps = buildSteps(items, rounds, restBetweenRounds, {
+        autoAdvance: next,
+      });
+      const key = anchorKeyRef.current;
+      const target = key
+        ? nextSteps.findIndex((_, i) => stepKey(nextSteps, i) === key)
+        : -1;
+      setStepIndex(
+        target >= 0 ? target : Math.min(stepIndex, nextSteps.length - 1),
+      );
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoAdvance]);
+    setAutoAdvance(next);
+  };
 
   // ── Advance ─────────────────────────────────────────────────────────────────
   const advance = React.useCallback(() => {
@@ -747,6 +764,10 @@ export default function WorkoutRunner({
   const nextWork = steps.slice(stepIndex + 1).find((s) => s.kind === "work") as
     | Extract<RunStep, { kind: "work" }>
     | undefined;
+  // Lead-ins are skipped, but the between-rounds "Rest" is worth announcing.
+  const upNext = steps
+    .slice(stepIndex + 1)
+    .find((s) => s.kind === "work" || s.label === "Rest");
 
   const header =
     step.kind === "work" && step.round
@@ -804,7 +825,7 @@ export default function WorkoutRunner({
           control={
             <Switch
               checked={autoAdvance}
-              onChange={(e) => setAutoAdvance(e.target.checked)}
+              onChange={(e) => toggleAutoAdvance(e.target.checked)}
               size="small"
             />
           }
@@ -929,14 +950,17 @@ export default function WorkoutRunner({
       ) : null}
 
       {/* Up next (skip during a lead-in — the name is already featured above) */}
-      {nextWork && !isLeadIn ? (
+      {upNext && !isLeadIn ? (
         <Typography
           variant="body2"
           color="text.secondary"
           textAlign="center"
           sx={{ mb: 2 }}
         >
-          Up next: {nextWork.item.name}
+          Up next:{" "}
+          {upNext.kind === "work"
+            ? upNext.item.name
+            : `Rest (${formatDuration(upNext.seconds)})`}
         </Typography>
       ) : null}
 
