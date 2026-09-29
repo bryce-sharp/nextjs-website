@@ -347,18 +347,29 @@ export async function listRecentMonths(month: string, limit = 3): Promise<Recent
   return out;
 }
 
+/** A bill version for the bill-pickers; its dates let a picker offer only the version in effect. */
+export type BillOption = {
+  id: number;
+  name: string;
+  paymentsPerYear: number;
+  startDate: string;
+  endDate: string | null;
+};
+
+const billOptionColumns = {
+  id: recurringExpenses.id,
+  name: recurringExpenses.name,
+  paymentsPerYear: recurringExpenses.paymentsPerYear,
+  startDate: recurringExpenses.startDate,
+  endDate: recurringExpenses.endDate,
+};
+
 /** Recurring bills effective in a month, for the txn detail bill-picker. */
-export async function listBillsForMonth(
-  month: string,
-): Promise<{ id: number; name: string; paymentsPerYear: number }[]> {
+export async function listBillsForMonth(month: string): Promise<BillOption[]> {
   const groupId = await requireGroupId();
   const { start, end } = monthBounds(month);
   return db
-    .select({
-      id: recurringExpenses.id,
-      name: recurringExpenses.name,
-      paymentsPerYear: recurringExpenses.paymentsPerYear,
-    })
+    .select(billOptionColumns)
     .from(recurringExpenses)
     .where(
       and(
@@ -370,17 +381,11 @@ export async function listBillsForMonth(
     .orderBy(asc(recurringExpenses.name));
 }
 
-/** Every recurring bill, for the explorer's bill-picker (its rows span all months). */
-export async function listBills(): Promise<
-  { id: number; name: string; paymentsPerYear: number }[]
-> {
+/** Every version of every bill, for the explorer's bill-picker (its rows span all months). */
+export async function listBills(): Promise<BillOption[]> {
   const groupId = await requireGroupId();
   return db
-    .select({
-      id: recurringExpenses.id,
-      name: recurringExpenses.name,
-      paymentsPerYear: recurringExpenses.paymentsPerYear,
-    })
+    .select(billOptionColumns)
     .from(recurringExpenses)
     .where(eq(recurringExpenses.groupId, groupId))
     .orderBy(asc(recurringExpenses.name));

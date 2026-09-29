@@ -26,7 +26,19 @@ const phoneCell = (area: string, extra?: StyleObject) =>
   onPhone({ display: "block", gridArea: area, border: 0, p: 0, ...extra });
 
 export type TxnFund = { id: number; name: string };
-export type TxnBill = { id: number; name: string; paymentsPerYear: number };
+export type TxnBill = {
+  id: number;
+  name: string;
+  paymentsPerYear: number;
+  startDate: string; // YYYY-MM-DD; this version of the bill starts
+  endDate: string | null; // null = still in effect
+};
+
+/** Each bill's version in effect on `date`: an "as of" change keeps the old version for past months. */
+export function billsActiveOn(bills: TxnBill[], date: string): TxnBill[] {
+  if (!date) return bills;
+  return bills.filter((b) => b.startDate <= date && (b.endDate == null || b.endDate >= date));
+}
 export type TxnRowData = {
   id: number;
   postedOn: string;

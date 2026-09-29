@@ -17,7 +17,7 @@ import SubmitButton from "@/components/shared/SubmitButton";
 import NumberField from "@/components/shared/NumberField";
 import SuggestField from "@/components/shared/SuggestField";
 import { addManualTransactionAction } from "@/app/actions/finance-budget";
-import { CATEGORY_OPTIONS, type TxnFund, type TxnBill } from "./TransactionRow";
+import { CATEGORY_OPTIONS, billsActiveOn, type TxnFund, type TxnBill } from "./TransactionRow";
 import type { TxnAccount } from "./TransactionsTable";
 import { todayISO } from "@/lib/finance/parse";
 
@@ -47,8 +47,10 @@ export default function AddTransactionDialog({
   // this month's Left-to-Spend; "reimbursement" = pays back a purchase (also
   // credits Left-to-Spend). (A fund bump is separate + optional, below.)
   const [destination, setDestination] = React.useState("track");
+  const [date, setDate] = React.useState(todayISO);
   const [error, setError] = React.useState<string | null>(null);
-  const billChoices = bills.filter((b) =>
+  // Only the bill versions in effect on the entered date.
+  const billChoices = billsActiveOn(bills, date).filter((b) =>
     category === "fixed" ? b.paymentsPerYear === 12 : b.paymentsPerYear !== 12,
   );
 
@@ -90,6 +92,7 @@ export default function AddTransactionDialog({
                 label="Date"
                 type="date"
                 defaultValue={todayISO()}
+                onChange={(e) => setDate(e.target.value)}
                 slotProps={{ inputLabel: { shrink: true } }}
               />
             </Box>

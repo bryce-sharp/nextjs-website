@@ -18,6 +18,7 @@ import SuggestField from "@/components/shared/SuggestField";
 import { updateTransactionAction } from "@/app/actions/finance-budget";
 import {
   CATEGORY_OPTIONS,
+  billsActiveOn,
   type TxnRowData,
   type TxnFund,
   type TxnBill,
@@ -45,8 +46,11 @@ export default function TransactionDetailDialog({
   onClose: () => void;
 }) {
   const [category, setCategory] = React.useState(txn.category);
+  const [date, setDate] = React.useState(txn.postedOn);
   const [error, setError] = React.useState<string | null>(null);
-  const billChoices = bills.filter((b) =>
+  // Only the bill versions in effect on the (possibly edited) date, so a price
+  // change "as of" a month doesn't list the bill twice.
+  const billChoices = billsActiveOn(bills, date).filter((b) =>
     category === "fixed" ? b.paymentsPerYear === 12 : b.paymentsPerYear !== 12,
   );
   // A link to a bill not offered here (e.g. a version an "as of" change retired)
@@ -91,6 +95,7 @@ export default function TransactionDetailDialog({
                 label="Date"
                 type="date"
                 defaultValue={txn.postedOn}
+                onChange={(e) => setDate(e.target.value)}
                 slotProps={{ inputLabel: { shrink: true } }}
               />
             </Box>
