@@ -22,6 +22,7 @@ export type TxnFilters = {
   category?: string; // exact spend-category match
   uncategorized?: boolean; // spendCategory IS NULL (find rows still to tag)
   flow?: Flow; // only rows that count as money out / money in (a tapped slice)
+  lane?: string; // exact engine category (discretionary, fixed, income…); pair with its flow
   merchants?: string[]; // exact merchant names (a merchant group's catch); [] = none
 };
 
@@ -62,6 +63,7 @@ export function txnWhere(groupId: number, f: TxnFilters, cursor: string | null =
   if (f.to) conds.push(lte(transactions.postedOn, f.to));
   if (f.uncategorized) conds.push(isNull(transactions.spendCategory));
   else if (f.category) conds.push(eq(transactions.spendCategory, f.category));
+  if (f.lane) conds.push(eq(transactions.category, f.lane));
   // Mirrors the cash-flow sums, so a slice's list adds up to the slice.
   if (f.flow === "out") {
     conds.push(eq(transactions.needsReview, false));

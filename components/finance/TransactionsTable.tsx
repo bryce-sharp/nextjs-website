@@ -32,7 +32,13 @@ import TransactionDetailDialog from "./TransactionDetailDialog";
 import AddTransactionDialog from "./AddTransactionDialog";
 import CategoryEditPopover from "./CategoryEditPopover";
 import { usePathname, useSearchParams } from "next/navigation";
-import { UNTAGGED, flowOf, isMoneyOut } from "@/lib/finance/cashflow";
+import {
+  LANE_LABELS,
+  UNTAGGED,
+  flowOf,
+  isMoneyOut,
+  isUnlinkedBillPayment,
+} from "@/lib/finance/cashflow";
 import { deleteTransactionAction } from "@/app/actions/finance-budget";
 import {
   loadMoreTransactionsAction,
@@ -114,21 +120,41 @@ export default function TransactionsTable({
 
   const reviewCount = rows.filter((t) => t.needsReview).length;
 
-  // The budget's "Where it went" slice filter (?tag=…, set without a reload):
+  // The budget's slice filter (?tag=… and/or ?lane=…, set without a reload):
   // only rows that count toward that slice, so the list adds up to it. A paged
   // list gets the same filter server-side instead.
   const tagFilter = paged ? null : searchParams.get("tag");
-  const shown =
-    tagFilter == null
-      ? rows
+  const laneFilter = paged ? null : searchParams.get("lane");
+  // ?unlinked=1: bill payments with no current bill (`bills` = this month's active bills).
+  const unlinkedFilter = !paged && searchParams.get("unlinked") === "1";
+  const activeBillIds = React.useMemo(() => new Set(bills.map((b) => b.id)), [bills]);
+  const filtering = tagFilter != null || laneFilter != null || unlinkedFilter;
+  const shown = !filtering
+    ? rows
+    : unlinkedFilter
+      ? rows.filter((r) =>
+          isUnlinkedBillPayment(r.category, r.recurringExpenseId, r.needsReview, activeBillIds),
+        )
       : rows.filter(
           (r) =>
             isMoneyOut(r.category, r.amount, r.needsReview) &&
-            (tagFilter === UNTAGGED ? r.spendCategory == null : r.spendCategory === tagFilter),
+            (laneFilter == null || r.category === laneFilter) &&
+            (tagFilter == null ||
+              (tagFilter === UNTAGGED ? r.spendCategory == null : r.spendCategory === tagFilter)),
         );
+  const filterLabel = unlinkedFilter
+    ? "Not linked to a bill"
+    : [
+        tagFilter == null ? null : tagFilter === UNTAGGED ? "Untagged" : tagFilter,
+        laneFilter == null ? null : (LANE_LABELS[laneFilter] ?? laneFilter),
+      ]
+        .filter(Boolean)
+        .join(" · ");
   function clearTagFilter() {
     const p = new URLSearchParams(searchParams.toString());
     p.delete("tag");
+    p.delete("lane");
+    p.delete("unlinked");
     const qs = p.toString();
     window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
   }
@@ -222,11 +248,11 @@ export default function TransactionsTable({
             {reviewCount > 0 ? (
               <Chip size="small" color="warning" label={`${reviewCount} to review`} />
             ) : null}
-            {tagFilter != null ? (
+            {filtering ? (
               <Chip
                 size="small"
                 color="primary"
-                label={`${tagFilter === UNTAGGED ? "Untagged" : tagFilter} · ${shown.length}`}
+                label={`${filterLabel} · ${shown.length}`}
                 onDelete={clearTagFilter}
               />
             ) : null}
@@ -241,7 +267,7 @@ export default function TransactionsTable({
 
       {shown.length === 0 ? (
         <Typography color="text.secondary" sx={{ p: 3, textAlign: "center" }}>
-          {tagFilter != null ? "Nothing with this tag this month." : emptyText}
+          {filtering ? "Nothing in this slice this month." : emptyText}
         </Typography>
       ) : (
         <TableContainer sx={{ overflowX: "auto", maxHeight: capped ? 520 : undefined }}>

@@ -216,6 +216,7 @@ export type WeightDashboard = {
   trends: Record<WindowKey, (number | null)[]>;
   projections: Record<WindowKey, Projection>;
   planPaceLbPerWeek: number | null;
+  goalDate: string | null; // LOSE: when the plan is due to reach goal (YYYY-MM-DD)
   milestones: Milestones | null;
   yearSummary: YearSummary | null;
   year: number; // the calendar year being viewed
@@ -308,6 +309,12 @@ export async function getWeightDashboard(
   const goalWeight = plan ? Number(plan.goalWeight) : null;
   const pace = plan ? Number(plan.perWeekPace) : null;
   const rangeLb = plan?.rangeLb != null ? Number(plan.rangeLb) : null;
+  const planEndDate =
+    !isMaintain && plan && pace && pace > 0
+      ? addWeeks(plan.startDate, (Number(plan.startWeight) - Number(plan.goalWeight)) / pace)
+      : null;
+  // A target-date plan stores its deadline as endDate; a pace plan's is derived.
+  const goalDate = !isMaintain && plan ? (plan.endDate ?? planEndDate) : null;
 
   // The dashboard shows ONE calendar year; last year ghosts behind for comparison.
   const yStart = `${viewYear}-01-01`;
@@ -361,6 +368,7 @@ export async function getWeightDashboard(
       trends: emptyTrends,
       projections: emptyProjections,
       planPaceLbPerWeek: pace,
+      goalDate,
       milestones: null,
       yearSummary: null,
       year: viewYear,
@@ -450,10 +458,6 @@ export async function getWeightDashboard(
   // (no false "heading somewhere"); a lose line extends forward toward the goal.
   const trends = { ...emptyTrends } as Record<WindowKey, (number | null)[]>;
   const projections = { ...emptyProjections } as Record<WindowKey, Projection>;
-  const planEndDate =
-    !isMaintain && plan && pace && pace > 0
-      ? addWeeks(plan.startDate, (Number(plan.startWeight) - Number(plan.goalWeight)) / pace)
-      : null;
   const drawEnd = isMaintain ? lastWeek : axisEnd;
 
   for (const win of TREND_WINDOWS) {
@@ -671,6 +675,7 @@ export async function getWeightDashboard(
     trends,
     projections,
     planPaceLbPerWeek: pace,
+    goalDate,
     milestones,
     yearSummary,
     year: viewYear,

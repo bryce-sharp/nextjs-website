@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { BarChart } from "@mui/x-charts/BarChart";
+import { BarChart, type BarSeries } from "@mui/x-charts/BarChart";
 import {
   ChartsTooltipCell,
   ChartsTooltipContainer,
@@ -48,6 +48,8 @@ function MonthTooltipContent() {
   if (!month) return null;
   const value = (id: string) => Number(month.seriesItems.find((s) => s.seriesId === id)?.value ?? 0);
   const kept = value("in") - value("out");
+  // A Type filter leaves one side charted, and "kept" needs both.
+  const showKept = month.seriesItems.length > 1;
   return (
     <ChartsTooltipPaper className={tc.paper}>
       <ChartsTooltipTable className={tc.table}>
@@ -64,23 +66,25 @@ function MonthTooltipContent() {
               <ChartsTooltipCell component="td" className={`${tc.valueCell} ${tc.cell}`}>{s.formattedValue}</ChartsTooltipCell>
             </ChartsTooltipRow>
           ))}
-          <ChartsTooltipRow className={tc.row}>
-            <ChartsTooltipCell
-              component="th"
-              className={`${tc.labelCell} ${tc.cell}`}
-              sx={{ borderTop: 1, borderColor: "divider", fontWeight: 600 }}
-            >
-              Kept
-            </ChartsTooltipCell>
-            <ChartsTooltipCell
-              component="td"
-              className={`${tc.valueCell} ${tc.cell}`}
-              // "&&" outranks the tooltip table's own value-cell color rule.
-              sx={{ borderTop: 1, borderColor: "divider", fontWeight: 600, "&&": { color: kept < 0 ? "warning.main" : undefined } }}
-            >
-              {formatMoneySigned(kept)}
-            </ChartsTooltipCell>
-          </ChartsTooltipRow>
+          {showKept ? (
+            <ChartsTooltipRow className={tc.row}>
+              <ChartsTooltipCell
+                component="th"
+                className={`${tc.labelCell} ${tc.cell}`}
+                sx={{ borderTop: 1, borderColor: "divider", fontWeight: 600 }}
+              >
+                Kept
+              </ChartsTooltipCell>
+              <ChartsTooltipCell
+                component="td"
+                className={`${tc.valueCell} ${tc.cell}`}
+                // "&&" outranks the tooltip table's own value-cell color rule.
+                sx={{ borderTop: 1, borderColor: "divider", fontWeight: 600, "&&": { color: kept < 0 ? "warning.main" : undefined } }}
+              >
+                {formatMoneySigned(kept)}
+              </ChartsTooltipCell>
+            </ChartsTooltipRow>
+          ) : null}
         </tbody>
       </ChartsTooltipTable>
     </ChartsTooltipPaper>
@@ -116,6 +120,7 @@ export default function CashFlowHistory({
   report,
   reportInProgress,
   reportCaption,
+  lockedFlow,
 }: {
   months: MonthFlowRow[];
   selected: string | null; // YYYY-MM-01
@@ -129,12 +134,20 @@ export default function CashFlowHistory({
   report: MonthReportData | null; // the selected month (or the timeframe) vs its plan
   reportInProgress: boolean;
   reportCaption?: string; // what a timeframe report covers
+  lockedFlow?: Flow | null; // a Type filter pins the whole card to one side
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const mounted = useMounted();
-  const [view, setView] = React.useState<Flow>(tagFlow);
+  const [pickedView, setView] = React.useState<Flow>(tagFlow);
+  const view = lockedFlow ?? pickedView;
+  const flowText = (moneyIn: number, moneyOut: number) =>
+    lockedFlow === "in"
+      ? `In ${formatMoney(moneyIn)}`
+      : lockedFlow === "out"
+        ? `Out ${formatMoney(moneyOut)}`
+        : formatCashFlow(moneyIn, moneyOut);
 
   const spansYears = new Set(months.map((m) => m.month.slice(0, 4))).size > 1;
   const selIndex = selected ? months.findIndex((m) => m.month === selected) : -1;
@@ -175,12 +188,30 @@ export default function CashFlowHistory({
   const tone = (c: string) => (index: number) => (selIndex < 0 || index === selIndex ? c : dimmed(c));
   const toneIn = tone(CASHFLOW_COLORS.income);
   const toneOut = tone(CASHFLOW_COLORS.spending);
+  const barSeries: BarSeries[] = [
+    {
+      id: "in",
+      label: "Income",
+      data: months.map((m) => m.moneyIn),
+      color: CASHFLOW_COLORS.income,
+      colorGetter: ({ dataIndex }) => toneIn(dataIndex),
+      valueFormatter: (v) => formatMoney(v ?? 0),
+    },
+    {
+      id: "out",
+      label: "Spending",
+      data: months.map((m) => m.moneyOut),
+      color: CASHFLOW_COLORS.spending,
+      colorGetter: ({ dataIndex }) => toneOut(dataIndex),
+      valueFormatter: (v) => formatMoney(v ?? 0),
+    },
+  ];
 
   return (
     <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2.5 }, mb: 2 }}>
       <Typography variant="h6">Money in &amp; out</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        {rangeLabel} · {formatCashFlow(totalIn, totalOut)}
+        {rangeLabel} · {flowText(totalIn, totalOut)}
       </Typography>
 
       {months.length === 0 ? (
@@ -200,24 +231,7 @@ export default function CashFlowHistory({
             },
           ]}
           yAxis={[{ valueFormatter: (v: number) => formatMoneyCompact(v), width: 52 }]}
-          series={[
-            {
-              id: "in",
-              label: "Income",
-              data: months.map((m) => m.moneyIn),
-              color: CASHFLOW_COLORS.income,
-              colorGetter: ({ dataIndex }) => toneIn(dataIndex),
-              valueFormatter: (v) => formatMoney(v ?? 0),
-            },
-            {
-              id: "out",
-              label: "Spending",
-              data: months.map((m) => m.moneyOut),
-              color: CASHFLOW_COLORS.spending,
-              colorGetter: ({ dataIndex }) => toneOut(dataIndex),
-              valueFormatter: (v) => formatMoney(v ?? 0),
-            },
-          ]}
+          series={barSeries.filter((s) => lockedFlow == null || s.id === lockedFlow)}
           onAxisClick={(_, d) => {
             if (d) select(months[d.dataIndex]?.month ?? null);
           }}
@@ -240,29 +254,33 @@ export default function CashFlowHistory({
       >
         <Box>
           <Typography variant="subtitle1" fontWeight={600}>
-            {sel ? monthName(sel.month, true) : rangeLabel} {income ? "income" : "spending"} by tag
+            {/* A Type filter already names its side inside rangeLabel. */}
+            {sel ? monthName(sel.month, true) : rangeLabel}
+            {lockedFlow && !sel ? "" : income ? " income" : " spending"} by tag
           </Typography>
           {sel ? (
             <Typography variant="body2" color="text.secondary">
-              {formatCashFlow(sel.moneyIn, sel.moneyOut)}
+              {flowText(sel.moneyIn, sel.moneyOut)}
             </Typography>
           ) : null}
         </Box>
         <Box sx={{ flexGrow: 1 }} />
-        <ToggleButtonGroup
-          exclusive
-          size="small"
-          value={view}
-          onChange={(_, v: Flow | null) => v && setView(v)}
-          aria-label="Breakdown"
-        >
-          <ToggleButton value="out" sx={{ px: 1.5, py: 0.25 }}>
-            Spending
-          </ToggleButton>
-          <ToggleButton value="in" sx={{ px: 1.5, py: 0.25 }}>
-            Income
-          </ToggleButton>
-        </ToggleButtonGroup>
+        {lockedFlow == null ? (
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={view}
+            onChange={(_, v: Flow | null) => v && setView(v)}
+            aria-label="Breakdown"
+          >
+            <ToggleButton value="out" sx={{ px: 1.5, py: 0.25 }}>
+              Spending
+            </ToggleButton>
+            <ToggleButton value="in" sx={{ px: 1.5, py: 0.25 }}>
+              Income
+            </ToggleButton>
+          </ToggleButtonGroup>
+        ) : null}
         {/* The chart's keyboard- and phone-friendly twin for picking a month. */}
         <TextField
           select

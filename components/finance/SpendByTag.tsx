@@ -62,6 +62,7 @@ export default function SpendByTag({
   onSelect,
   centerLabel = "spent",
   emptyText = "No spending in this period.",
+  labels,
 }: {
   rows: TagSpendRow[];
   stableOrder?: (string | null)[];
@@ -69,10 +70,13 @@ export default function SpendByTag({
   onSelect?: (key: string) => void;
   centerLabel?: string;
   emptyText?: string;
+  /** Display names for keys that aren't readable as-is (e.g. lane keys). */
+  labels?: Record<string, string>;
 }) {
   const mounted = useMounted();
   const [hover, setHover] = React.useState<number | null>(null);
   const data = slices(rows, stableOrder ?? rows.map((r) => r.tag));
+  const nameOf = (key: string) => labels?.[key] ?? labelOf(key);
   const total = data.reduce((s, d) => s + d.amount, 0);
   const selectedIndex = selected == null ? -1 : data.findIndex((d) => d.key === selected);
   const lit = hover ?? (selectedIndex >= 0 ? selectedIndex : null);
@@ -120,7 +124,7 @@ export default function SpendByTag({
                 data: data.map((d, i) => ({
                   id: i,
                   value: d.amount,
-                  label: labelOf(d.key),
+                  label: nameOf(d.key),
                   color: d.color,
                 })),
               },
@@ -172,7 +176,7 @@ export default function SpendByTag({
           >
             <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: d.color }} />
             <Typography variant="body2" noWrap fontWeight={i === selectedIndex ? 600 : undefined}>
-              {labelOf(d.key)}
+              {nameOf(d.key)}
             </Typography>
             <Typography variant="body2" fontWeight={600} sx={{ textAlign: "right" }}>
               {formatMoney(d.amount)}

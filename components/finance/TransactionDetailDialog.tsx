@@ -49,6 +49,10 @@ export default function TransactionDetailDialog({
   const billChoices = bills.filter((b) =>
     category === "fixed" ? b.paymentsPerYear === 12 : b.paymentsPerYear !== 12,
   );
+  // A link to a bill not offered here (e.g. a version an "as of" change retired)
+  // shows as blank, so say why rather than let it look unlinked by mistake.
+  const staleLink =
+    txn.recurringExpenseId != null && !billChoices.some((b) => b.id === txn.recurringExpenseId);
 
   async function handle(formData: FormData) {
     setError(null);
@@ -134,10 +138,13 @@ export default function TransactionDetailDialog({
                 select
                 defaultValue={txn.recurringExpenseId ?? ""}
                 helperText={
-                  category === "amortized"
-                    ? "Links this payment to its sinking fund — it draws the reserve, not this month's budget."
-                    : "Links to the bill so its estimate reconciles."
+                  staleLink
+                    ? "Linked to a bill that isn't current here (likely an older version) — pick the right one."
+                    : category === "amortized"
+                      ? "Links this payment to its sinking fund — it draws the reserve, not this month's budget."
+                      : "Links to the bill so its estimate reconciles."
                 }
+                error={staleLink}
               >
                 <MenuItem value="">
                   <em>None</em>

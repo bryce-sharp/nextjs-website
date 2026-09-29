@@ -1,8 +1,14 @@
+"use client";
+
 import Box from "@mui/material/Box";
+import ButtonBase from "@mui/material/ButtonBase";
+import Link from "@mui/material/Link";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { formatMoney, formatMoneySigned } from "@/lib/format";
+import { useTableFilter } from "./useTableFilter";
 
 // The at-a-glance budget header, mirroring the Scriptable widget: how much
 // discretionary is LEFT, and whether you're ahead of or behind the daily pace.
@@ -24,12 +30,39 @@ export type BudgetSummaryData = {
 };
 
 // A compact secondary lane (Fixed / Amortized): label + actual/plan + a thin,
-// muted bar. Deliberately quieter than the discretionary hero bar above.
-function MiniLane({ label, spent, budget }: { label: string; spent: number; budget: number }) {
+// muted bar. Deliberately quieter than the discretionary hero bar above. Tapping
+// it filters the transactions below to that lane; tapping again clears it.
+function MiniLane({
+  label,
+  lane,
+  spent,
+  budget,
+}: {
+  label: string;
+  lane: string;
+  spent: number;
+  budget: number;
+}) {
+  const filter = useTableFilter();
+  const active = filter.tag == null && filter.lane === lane;
   const pct = budget > 0 ? Math.min(100, (spent / budget) * 100) : 0;
   const over = spent > budget + 0.005;
   return (
-    <Box>
+    <ButtonBase
+      onClick={() => filter.toggle(null, lane)}
+      aria-pressed={active}
+      aria-label={`Show ${label.toLowerCase()} transactions`}
+      sx={{
+        display: "block",
+        textAlign: "left",
+        borderRadius: 1,
+        mx: -0.75,
+        px: 0.75,
+        py: 0.5,
+        bgcolor: active ? "action.selected" : undefined,
+        "&:hover": { bgcolor: active ? "action.selected" : "action.hover" },
+      }}
+    >
       <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.25 }}>
         <Typography variant="caption" color="text.secondary">
           {label}
@@ -47,7 +80,31 @@ function MiniLane({ label, spent, budget }: { label: string; spent: number; budg
           }}
         />
       </Box>
-    </Box>
+    </ButtonBase>
+  );
+}
+
+// Bill payments the lanes above can't count (no bill, or a retired version of
+// one). Tapping lists them below, where "Which bill" fixes each.
+function UnlinkedBills({ count }: { count: number }) {
+  const filter = useTableFilter();
+  return (
+    <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 1.5, color: "warning.main" }}>
+      <WarningAmberIcon sx={{ fontSize: 16 }} />
+      <Link
+        component="button"
+        type="button"
+        variant="caption"
+        color="inherit"
+        underline="hover"
+        onClick={filter.toggleUnlinked}
+        sx={{ textAlign: "left" }}
+      >
+        {filter.unlinked
+          ? "Showing unlinked bill payments below · show all"
+          : `${count} bill ${count === 1 ? "payment is" : "payments are"} not linked to a current bill, so the lanes above skip ${count === 1 ? "it" : "them"} · fix below ↓`}
+      </Link>
+    </Stack>
   );
 }
 
@@ -86,9 +143,11 @@ function Stat({
 export default function BudgetSummary({
   d,
   isCurrentMonth,
+  unlinkedBills = 0,
 }: {
   d: BudgetSummaryData;
   isCurrentMonth: boolean;
+  unlinkedBills?: number; // fixed/amortized payments with no current bill
 }) {
   const overBudget = d.remaining < 0;
   const behind = d.paceDelta < 0;
@@ -194,17 +253,19 @@ export default function BudgetSummary({
           }}
         >
           {d.fixed.expected > 0 ? (
-            <MiniLane label="Fixed bills" spent={d.fixed.actual} budget={d.fixed.expected} />
+            <MiniLane label="Fixed bills" lane="fixed" spent={d.fixed.actual} budget={d.fixed.expected} />
           ) : null}
           {d.amortized.reserved > 0 ? (
             <MiniLane
               label="Amortized (reserved)"
+              lane="amortized"
               spent={d.amortized.paid}
               budget={d.amortized.reserved}
             />
           ) : null}
         </Box>
       ) : null}
+      {unlinkedBills > 0 ? <UnlinkedBills count={unlinkedBills} /> : null}
     </Paper>
   );
 }
