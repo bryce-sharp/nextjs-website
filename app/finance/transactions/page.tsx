@@ -18,7 +18,7 @@ import {
   summarizeCashFlow,
 } from "@/lib/queries/finance-cashflow";
 import { getMerchantGroupsForGroup } from "@/lib/queries/finance-categories";
-import { UNTAGGED, type Flow } from "@/lib/finance/cashflow";
+import { LANE_LABELS, UNTAGGED, flowOf, type Flow } from "@/lib/finance/cashflow";
 import {
   getMonthReportForGroup,
   getRangeReportForGroup,
@@ -118,6 +118,24 @@ export default async function HistoryPage({
     ? (groupFlow === "in" ? inGroups : outGroups).groups.find((g) => g.name === groupName)
     : undefined;
 
+  // Type: every spending or income lane ("out"/"in"), or one lane — always with
+  // its flow, so the bars, breakdown and list count exactly what cash flow does.
+  const typeParam = str(get("type"));
+  const typeFlow: Flow | undefined =
+    typeParam === "out" || typeParam === "in"
+      ? typeParam
+      : typeParam
+        ? (flowOf(typeParam) ?? undefined)
+        : undefined;
+  const typeLane = typeFlow && typeParam !== typeFlow ? typeParam : undefined;
+  const typeLabel = typeLane
+    ? LANE_LABELS[typeLane]
+    : typeFlow === "out"
+      ? "All spending"
+      : typeFlow === "in"
+        ? "All income"
+        : null;
+
   const catParam = str(get("cat"));
   const filters: TxnFilters = {
     q: str(get("q")),
@@ -129,6 +147,8 @@ export default async function HistoryPage({
     uncategorized: catParam === "__none__",
     // A group that no longer exists matches nothing rather than everything.
     merchants: groupName ? (picked?.merchants.map((m) => m.merchant) ?? []) : undefined,
+    flow: typeFlow,
+    lane: typeLane,
   };
 
   // The drilled month, clipped to the range so a custom partial month stays honest.
@@ -144,7 +164,7 @@ export default async function HistoryPage({
 
   // A tapped slice: only the rows that make up that slice (same flow + tag).
   const tag = str(get("tag")) ?? null;
-  const tagFlow: Flow = get("tagflow") === "in" ? "in" : "out";
+  const tagFlow: Flow = typeFlow ?? (get("tagflow") === "in" ? "in" : "out");
   const listFilters: TxnFilters = tag
     ? {
         ...scoped,
@@ -154,7 +174,9 @@ export default async function HistoryPage({
       }
     : scoped;
 
-  const narrowed = Boolean(filters.q || filters.min != null || filters.max != null || catParam || groupName);
+  const narrowed = Boolean(
+    filters.q || filters.min != null || filters.max != null || catParam || groupName || typeFlow,
+  );
 
   const raw: RawFilters = {
     q: str(get("q")) ?? "",
@@ -163,6 +185,7 @@ export default async function HistoryPage({
     range,
     from: datev(get("from")) ?? "",
     to: datev(get("to")) ?? "",
+    type: typeFlow ? (typeParam ?? "") : "",
     cat: catParam ?? "",
     group: groupName ?? "",
     groupflow: groupFlow,
@@ -209,7 +232,7 @@ export default async function HistoryPage({
   const tagLabel = tag === UNTAGGED ? "Untagged" : tag;
   const categories = outGroups.categories;
   const incomeCategories = inGroups.categories;
-  const scopeLabel = `${RANGE_LABELS[range] ?? "This year"}${groupName ? ` · ${groupName}` : ""}`;
+  const scopeLabel = [RANGE_LABELS[range] ?? "This year", groupName, typeLabel].filter(Boolean).join(" · ");
 
   return (
     <Container maxWidth="md" sx={{ py: { xs: 4, md: 6 } }}>
@@ -250,6 +273,7 @@ export default async function HistoryPage({
         tagFlow={tagFlow}
         report={report && "report" in report ? report.report : report}
         reportInProgress={month != null && month.slice(0, 7) === today.slice(0, 7)}
+        lockedFlow={typeFlow ?? null}
         reportCaption={
           report && "report" in report
             ? `${report.months === 1 ? formatMonth(report.first) : `${formatMonth(report.first)} – ${formatMonth(report.last)}`} · ${report.months} ${report.months === 1 ? "month" : "months"} summed${report.skippedCurrent ? ` · ${formatMonth(today)} is still in progress, so it isn't included` : ""}`

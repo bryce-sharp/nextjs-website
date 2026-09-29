@@ -43,6 +43,7 @@ npm run lint
 npm run db:push        # sync lib/db/schema.ts to the database
 npm run db:studio      # browse/edit the DB in a GUI (local.drizzle.studio)
 node scripts/inspect-db.mjs   # quick: list the DB tables
+node scripts/reconcile-card.mjs <chase.csv>   # read-only: statement vs app transactions
 ```
 
 ## Layout

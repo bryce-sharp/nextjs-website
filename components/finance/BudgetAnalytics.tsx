@@ -4,25 +4,20 @@ import Accordion from "@mui/material/Accordion";
 import AccordionSummary from "@mui/material/AccordionSummary";
 import AccordionDetails from "@mui/material/AccordionDetails";
 import Box from "@mui/material/Box";
+import Link from "@mui/material/Link";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import { formatCashFlow, formatMoney, formatMonth } from "@/lib/format";
+import AppLink from "@/components/shared/AppLink";
+import { formatMoney, formatMonth } from "@/lib/format";
 import type { MonthReport as MonthReportData } from "@/lib/finance/month-report";
 import MonthReport from "./MonthReport";
 
-// The deep numbers, now an INLINE expander inside the Insights card (not its own
-// card). The spend lanes + pace moved up to the Summary; what's left is the
-// granular stuff you only occasionally want: recent daily spend, income by
-// source, credits/set-asides, and the last few months.
+// The deep numbers, an INLINE expander inside the Insights card (not its own
+// card). Discretionary-only: what reimbursements handed back and how recent
+// months went against their budgets. Income and off-budget live in All money.
 export type BudgetAnalyticsData = {
-  isCurrentMonth: boolean;
   reimbursed: number;
-  savings: number;
-  income: { total: number; bySource: { source: string; amount: number }[] };
-  today: number;
-  yesterday: number;
-  last7: number;
   recentMonths: { month: string; spent: number; budget: number; remaining: number }[];
 };
 
@@ -87,12 +82,12 @@ export type CashFlowDetailsData = {
   report: MonthReportData | null; // null = no ATLAS plan this month
   inProgress: boolean;
   sources: { source: string | null; category: string; amount: number }[];
-  recent: { month: string; moneyIn: number; moneyOut: number }[];
+  historyHref: string; // History drilled into this month
 };
 
 // The All-money counterpart: how the month went against the plan (the same
-// report History shows), money in by source (reimbursements pooled on one
-// line), and the last few months' in/out.
+// report History shows) and money in by source (reimbursements pooled on one
+// line). Month-over-month comparison lives in History, one link away.
 export function CashFlowDetails({ d }: { d: CashFlowDetailsData }) {
   const income = d.sources.filter((s) => s.category === "income");
   const reimbursed = d.sources
@@ -116,18 +111,9 @@ export function CashFlowDetails({ d }: { d: CashFlowDetailsData }) {
         </Section>
       ) : null}
 
-      {d.recent.length > 0 ? (
-        <Section title="Recent months">
-          {[...d.recent].reverse().map((m) => (
-            <Row
-              key={m.month}
-              label={formatMonth(m.month)}
-              value={formatCashFlow(m.moneyIn, m.moneyOut)}
-              color={m.moneyIn - m.moneyOut < 0 ? "warning.main" : undefined}
-            />
-          ))}
-        </Section>
-      ) : null}
+      <Link component={AppLink} href={d.historyHref} variant="body2" fontWeight={600} underline="hover">
+        Compare months in History →
+      </Link>
     </MoreDetails>
   );
 }
@@ -135,29 +121,9 @@ export function CashFlowDetails({ d }: { d: CashFlowDetailsData }) {
 export default function BudgetAnalytics({ d }: { d: BudgetAnalyticsData }) {
   return (
     <MoreDetails>
-      {d.isCurrentMonth ? (
-        <Section title="Spending lately">
-          <Row label="Today" value={formatMoney(d.today)} />
-          <Row label="Yesterday" value={formatMoney(d.yesterday)} />
-          <Row label="This week" value={formatMoney(d.last7)} />
-        </Section>
-      ) : null}
-
-      {d.income.total > 0 ? (
-        <Section title="Income">
-          <Row label="Total in" value={formatMoney(d.income.total)} color="success.main" />
-          {d.income.bySource.map((s) => (
-            <Row key={s.source} label={s.source} value={formatMoney(s.amount)} />
-          ))}
-        </Section>
-      ) : null}
-
-      {d.reimbursed > 0 || d.savings > 0 ? (
-        <Section title="Credits & off-budget">
-          {d.reimbursed > 0 ? (
-            <Row label="Reimbursed back" value={formatMoney(d.reimbursed)} color="success.main" />
-          ) : null}
-          {d.savings > 0 ? <Row label="Off-budget purchases" value={formatMoney(d.savings)} /> : null}
+      {d.reimbursed > 0 ? (
+        <Section title="Credits">
+          <Row label="Reimbursed back" value={formatMoney(d.reimbursed)} color="success.main" />
         </Section>
       ) : null}
 

@@ -24,13 +24,13 @@ import { listIncomeCategories, listSpendCategories } from "@/lib/queries/finance
 import { toTxnRow } from "@/lib/queries/finance-transactions";
 import {
   cashFlowByCategory,
-  cashFlowByMonth,
   moneyInBySource,
   spendByTag,
   summarizeCashFlow,
 } from "@/lib/queries/finance-cashflow";
 import { listProfiles } from "@/lib/queries/profiles";
 import { currentMonthISO, lastDayOfMonth } from "@/lib/finance/parse";
+import { OUT_CATEGORIES, isMoneyOut, isUnlinkedBillPayment } from "@/lib/finance/cashflow";
 import { getGroupTimezone } from "@/lib/queries/group";
 import { formatMonth } from "@/lib/format";
 import AtlasMonthSwitcher from "@/components/finance/AtlasMonthSwitcher";
@@ -42,13 +42,6 @@ import FundsPanel from "@/components/finance/FundsPanel";
 export const metadata = { title: "Budget" };
 
 const d = (c: number) => Math.round(c) / 100;
-
-/** YYYY-MM-01 shifted by whole months. */
-function shiftMonth(month: string, delta: number): string {
-  const dt = new Date(`${month.slice(0, 7)}-01T12:00:00Z`);
-  dt.setUTCMonth(dt.getUTCMonth() + delta);
-  return dt.toISOString().slice(0, 10);
-}
 
 // The Budget tab (F3): this month's transactions + the discretionary pace,
 // computed live from the ledger. Past months render frozen once closed (CP4b).
@@ -72,7 +65,7 @@ export default async function BudgetPage({
   const groupId = session.groupId;
   const [
     [view, txns, accounts, monthsWithData, bills, groupProfiles, recentMonths, trend, suggest, categories, editor],
-    [flow, allTrend, tagSpend, lanes, sources, recentFlows, incomeCategories],
+    [flow, allTrend, tagSpend, lanes, sources, incomeCategories],
   ] = await Promise.all([
     Promise.all([
       getBudgetMonth(month),
@@ -93,7 +86,6 @@ export default async function BudgetPage({
       spendByTag(groupId, monthRange),
       cashFlowByCategory(groupId, monthRange),
       moneyInBySource(groupId, monthRange),
-      cashFlowByMonth(groupId, { from: shiftMonth(month, -3), to: lastDayOfMonth(shiftMonth(month, -1)) }),
       listIncomeCategories(),
     ]),
   ]);
@@ -137,19 +129,48 @@ export default async function BudgetPage({
     .slice(0, 3)
     .map(([merchant, { total, count }]) => ({ merchant, total, count }));
 
-  // Income this month, grouped by source (the merchant field on income rows).
-  // Only true income rows — the fund top-up an income entry may spawn is a
-  // separate "fund" row and never counts here.
-  const incomeRows = rows.filter((r) => r.category === "income");
-  const incomeTotal = incomeRows.reduce((s, r) => s + r.amount, 0);
-  const incomeSourceTotals = new Map<string, number>();
-  for (const r of incomeRows) {
-    const k = r.merchant || "—";
-    incomeSourceTotals.set(k, (incomeSourceTotals.get(k) ?? 0) + r.amount);
+  // Discretionary by tag — the same rows the table's lane=discretionary slice
+  // filter keeps (refunds net in, unreadable rows stay out), so a tapped slice's
+  // list adds up to it.
+  const discTagTotals = new Map<string | null, number>();
+  for (const r of rows) {
+    if (r.category !== "discretionary" || r.needsReview) continue;
+    discTagTotals.set(r.spendCategory, (discTagTotals.get(r.spendCategory) ?? 0) + r.amount);
   }
-  const incomeBySource = [...incomeSourceTotals.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([source, amount]) => ({ source, amount }));
+  const discTags = [...discTagTotals.entries()]
+    .map(([tag, amount]) => ({ tag, amount: Math.round(amount * 100) / 100 }))
+    .filter((r) => r.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+
+  // Money out by lane for All money's Type view — the same sums as its totals.
+  const types = lanes
+    .filter((l) => (OUT_CATEGORIES as readonly string[]).includes(l.category) && l.moneyOut > 0)
+    .map((l) => ({ tag: l.category, amount: l.moneyOut }))
+    .sort((a, b) => b.amount - a.amount);
+
+  // History drilled into this month. Its default range is this year, so an
+  // older month brings a range that contains it.
+  const year = Number(month.slice(0, 4));
+  const thisYear = Number(currentMonth.slice(0, 4));
+  const historyRange =
+    year === thisYear
+      ? ""
+      : year === thisYear - 1
+        ? "range=lastyear&"
+        : `range=custom&from=${year}-01-01&to=${year}-12-31&`;
+  const historyHref = `/finance/transactions?${historyRange}m=${month.slice(0, 7)}`;
+
+  // Untagged money out, per lens — the rows each lens's untagged filter shows.
+  const untaggedOut = rows.filter(
+    (r) => r.spendCategory == null && isMoneyOut(r.category, r.amount, r.needsReview),
+  );
+  const untaggedDisc = untaggedOut.filter((r) => r.category === "discretionary").length;
+
+  // Bill payments the lanes can't count — `bills` is exactly this month's active bills.
+  const activeBillIds = new Set(bills.map((b) => b.id));
+  const unlinkedBills = rows.filter((r) =>
+    isUnlinkedBillPayment(r.category, r.recurringExpenseId, r.needsReview, activeBillIds),
+  ).length;
 
   return (
     <Container maxWidth="md" sx={{ py: { xs: 4, md: 6 } }}>
@@ -200,6 +221,7 @@ export default async function BudgetPage({
       ) : (
         <BudgetSummary
           isCurrentMonth={month === currentMonth}
+          unlinkedBills={unlinkedBills}
           d={{
             budget: d(disc.budgetC),
             netSpent: d(disc.netSpentC),
@@ -226,18 +248,19 @@ export default async function BudgetPage({
 
       <BudgetInsights
         d={{
+          month,
           trend,
           budget: view.hasIncome ? d(disc.budgetC) : null,
+          lately:
+            month === currentMonth
+              ? { today: d(c.analytics.todayC), last7: d(c.analytics.last7C) }
+              : null,
+          tags: discTags,
+          untagged: untaggedDisc,
           topPurchases,
           topMerchants,
           details: {
-            isCurrentMonth: month === currentMonth,
             reimbursed: d(disc.reimbursedC),
-            savings: d(c.savingsC),
-            income: { total: incomeTotal, bySource: incomeBySource },
-            today: d(c.analytics.todayC),
-            yesterday: d(c.analytics.yesterdayC),
-            last7: d(c.analytics.last7C),
             recentMonths,
           },
           all: {
@@ -245,11 +268,13 @@ export default async function BudgetPage({
             moneyOut: flow.moneyOut,
             trend: allTrend,
             tags: tagSpend,
+            types,
+            untagged: untaggedOut.length,
             details: {
               report: monthReportFrom(view, lanes),
               inProgress: month === currentMonth,
               sources,
-              recent: recentFlows,
+              historyHref,
             },
           },
         }}

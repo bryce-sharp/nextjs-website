@@ -7,10 +7,11 @@ import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
 import InputAdornment from "@mui/material/InputAdornment";
 import MenuItem from "@mui/material/MenuItem";
+import ListSubheader from "@mui/material/ListSubheader";
 import Button from "@mui/material/Button";
 import Autocomplete from "@mui/material/Autocomplete";
 import SearchIcon from "@mui/icons-material/Search";
-import type { Flow } from "@/lib/finance/cashflow";
+import { IN_CATEGORIES, LANE_LABELS, OUT_CATEGORIES, type Flow } from "@/lib/finance/cashflow";
 
 export type RawFilters = {
   q: string;
@@ -19,6 +20,7 @@ export type RawFilters = {
   range: string;
   from: string;
   to: string;
+  type: string; // "" = all, "out"/"in" = every spending/income lane, else one lane
   cat: string; // "" = all, "__none__" = uncategorized, else the category
   group: string; // "" = all, else a merchant group's name
   groupflow: Flow; // which side that group lives on
@@ -52,6 +54,7 @@ function buildUrl(pathname: string, v: RawFilters): string {
     if (v.from) p.set("from", v.from);
     if (v.to) p.set("to", v.to);
   }
+  if (v.type) p.set("type", v.type);
   if (v.cat) p.set("cat", v.cat);
   if (v.group) {
     p.set("group", v.group);
@@ -79,6 +82,7 @@ export default function TxnFilterBar({
   const [range, setRange] = React.useState(raw.range || DEFAULT_RANGE);
   const [from, setFrom] = React.useState(raw.from);
   const [to, setTo] = React.useState(raw.to);
+  const [type, setType] = React.useState(raw.type);
   const [cat, setCat] = React.useState(raw.cat);
   const [group, setGroup] = React.useState<GroupOption | null>(
     raw.group ? { name: raw.group, flow: raw.groupflow } : null,
@@ -105,6 +109,7 @@ export default function TxnFilterBar({
     range,
     from,
     to,
+    type,
     cat,
     group: group?.name ?? "",
     groupflow: group?.flow ?? "out",
@@ -118,13 +123,14 @@ export default function TxnFilterBar({
     setRange(DEFAULT_RANGE);
     setFrom("");
     setTo("");
+    setType("");
     setCat("");
     setGroup(null);
     if (timer.current) clearTimeout(timer.current);
     router.push(pathname);
   };
 
-  const hasAny = q || min || max || (range && range !== DEFAULT_RANGE) || cat || group;
+  const hasAny = q || min || max || (range && range !== DEFAULT_RANGE) || type || cat || group;
 
   return (
     <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, mb: 2 }}>
@@ -235,6 +241,36 @@ export default function TxnFilterBar({
             />
           </>
         ) : null}
+
+        {/* Spending and income lanes sit under their own headings; "All spending" /
+            "All income" pick every lane on that side. */}
+        <TextField
+          size="small"
+          select
+          label="Type"
+          value={type}
+          onChange={(e) => {
+            setType(e.target.value);
+            commit(vals({ type: e.target.value }), true);
+          }}
+          sx={{ width: 180 }}
+        >
+          <MenuItem value="">All types</MenuItem>
+          <ListSubheader>Spending</ListSubheader>
+          <MenuItem value="out">All spending</MenuItem>
+          {OUT_CATEGORIES.map((c) => (
+            <MenuItem key={c} value={c} sx={{ pl: 3 }}>
+              {LANE_LABELS[c]}
+            </MenuItem>
+          ))}
+          <ListSubheader>Income</ListSubheader>
+          <MenuItem value="in">All income</MenuItem>
+          {IN_CATEGORIES.map((c) => (
+            <MenuItem key={c} value={c} sx={{ pl: 3 }}>
+              {LANE_LABELS[c]}
+            </MenuItem>
+          ))}
+        </TextField>
 
         <TextField
           size="small"
