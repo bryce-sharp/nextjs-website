@@ -30,6 +30,8 @@ type Trend = {
 
 export type BudgetInsightsData = {
   trend: Trend;
+  /** The discretionary budget; null when the month has no income to budget from. */
+  budget: number | null;
   topPurchases: { merchant: string; amount: number; date: string }[];
   topMerchants: { merchant: string; total: number; count: number }[];
   details: BudgetAnalyticsData;
@@ -229,6 +231,7 @@ function DiscretionaryView({ d }: { d: BudgetInsightsData }) {
           lastMonth={d.trend.lastMonth}
           thisLabel={d.trend.thisLabel}
           lastLabel={d.trend.lastLabel}
+          budget={d.budget}
         />
       </Box>
 

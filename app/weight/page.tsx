@@ -45,6 +45,7 @@ export default async function WeightDashboard({
     trends,
     projections,
     planPaceLbPerWeek,
+    goalDate,
     milestones,
     yearSummary,
     year: viewYear,
@@ -132,6 +133,8 @@ export default async function WeightDashboard({
           ghost={chart.ghost}
           holdWeight={plan?.mode === "maintain" ? Number(plan.goalWeight) : null}
           holdRange={plan?.rangeLb != null ? Number(plan.rangeLb) : null}
+          goalWeight={plan && plan.mode !== "maintain" ? Number(plan.goalWeight) : null}
+          goalDate={goalDate}
           trends={trends}
           projections={projections}
           milestones={milestones!}

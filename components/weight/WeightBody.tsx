@@ -132,6 +132,8 @@ export default function WeightBody({
   ghost,
   holdWeight,
   holdRange,
+  goalWeight,
+  goalDate,
   trends,
   projections,
   milestones,
@@ -149,6 +151,8 @@ export default function WeightBody({
   ghost: (number | null)[];
   holdWeight?: number | null;
   holdRange?: number | null;
+  goalWeight?: number | null; // LOSE only; maintain already draws its hold band
+  goalDate?: string | null;
   trends: Record<WindowKey, (number | null)[]>;
   projections: Record<WindowKey, Projection>;
   milestones: Milestones;
@@ -349,6 +353,8 @@ export default function WeightBody({
           ghost={ghost}
           color={color}
           hasGoal={hasGoal}
+          goalWeight={goalWeight}
+          goalDate={goalDate}
         />
         <Stack
           direction="row"
@@ -361,7 +367,7 @@ export default function WeightBody({
             {maintain && holdWeight != null && holdRange != null
               ? `Holding ${holdWeight} ±${holdRange} lb · ${WINDOW_LABEL[win]} trend`
               : hasGoal && planPace != null
-                ? `Plan pace ${planPace} lb/wk · ${WINDOW_LABEL[win]} trend`
+                ? `Plan pace ${planPace} lb/wk${goalDate ? ` · due ${formatDate(goalDate)}` : ""} · ${WINDOW_LABEL[win]} trend`
                 : ""}
           </Typography>
           {topBadges.length > 0 ? (

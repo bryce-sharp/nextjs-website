@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { LineChart, lineClasses } from "@mui/x-charts/LineChart";
+import { ChartsReferenceLine } from "@mui/x-charts/ChartsReferenceLine";
 import { useTheme, alpha } from "@mui/material/styles";
 import Box from "@mui/material/Box";
 import FormControlLabel from "@mui/material/FormControlLabel";
@@ -31,6 +32,8 @@ export type WeightChartProps = {
   /** The active profile's color — the measured line's identity hue. */
   color: string;
   hasGoal: boolean;
+  goalWeight?: number | null; // horizontal "Goal" reference line
+  goalDate?: string | null; // YYYY-MM-DD vertical "Due" reference line
 };
 
 // The measured line wears the profile color; target (the plan) and trend (the
@@ -48,6 +51,8 @@ export default function WeightChart({
   ghost,
   color,
   hasGoal,
+  goalWeight,
+  goalDate,
 }: WeightChartProps) {
   const theme = useTheme();
   const mounted = useMounted();
@@ -67,13 +72,21 @@ export default function WeightChart({
       ...(bandLow ?? []),
       ...(bandHigh ?? []),
       ...(ghost ?? []),
+      goalWeight,
     ].filter((v): v is number => v != null);
     if (!vals.length) return { yMin: undefined, yMax: undefined };
     return {
       yMin: Math.floor((Math.min(...vals) - 4) / 5) * 5,
       yMax: Math.ceil((Math.max(...vals) + 4) / 5) * 5,
     };
-  }, [actual, target, trend, bandLow, bandHigh, ghost]);
+  }, [actual, target, trend, bandLow, bandHigh, ghost, goalWeight]);
+
+  const goalX = goalDate ? new Date(`${goalDate}T12:00:00`) : null;
+  // Past ~80% of the axis, the "Due" label flips to the line's left so it isn't clipped.
+  const goalLabelLeft =
+    goalX != null &&
+    x.length > 1 &&
+    (goalX.getTime() - x[0].getTime()) / (x[x.length - 1].getTime() - x[0].getTime()) > 0.8;
 
   // theme.vars = CSS custom properties, so theme colors follow light/dark mode
   // (theme.palette only holds the light scheme's values under cssVariables).
@@ -210,7 +223,32 @@ export default function WeightChart({
           },
           [`& .${lineClasses.line}[data-series="ghost"]`]: { strokeDasharray: "4 4", strokeWidth: 1.5 },
         }}
-      />
+      >
+        {/* Goal markers are solid hairlines, so they never read as one of the dashed series. */}
+        {goalWeight != null ? (
+          <ChartsReferenceLine
+            y={goalWeight}
+            label={`Goal ${goalWeight}`}
+            labelAlign="start"
+            lineStyle={{ stroke: referenceColor, strokeWidth: 1, opacity: 0.6 }}
+            labelStyle={{ fill: referenceColor, fontSize: 11 }}
+          />
+        ) : null}
+        {goalX != null ? (
+          <ChartsReferenceLine
+            x={goalX}
+            label={`Due ${goalX.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+            labelAlign="start"
+            spacing={goalLabelLeft ? { x: -5, y: 5 } : { x: 5, y: 5 }}
+            lineStyle={{ stroke: referenceColor, strokeWidth: 1, opacity: 0.6 }}
+            labelStyle={{
+              fill: referenceColor,
+              fontSize: 11,
+              textAnchor: goalLabelLeft ? "end" : "start",
+            }}
+          />
+        ) : null}
+      </LineChart>
       ) : (
         <Box sx={{ height: 340 }} aria-hidden />
       )}

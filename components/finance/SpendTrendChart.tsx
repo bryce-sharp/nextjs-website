@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { LineChart, lineClasses } from "@mui/x-charts/LineChart";
+import { ChartsReferenceLine } from "@mui/x-charts/ChartsReferenceLine";
 import { useTheme } from "@mui/material/styles";
 import Box from "@mui/material/Box";
 import { formatMoney, formatMoneyCompact } from "@/lib/format";
@@ -23,12 +24,15 @@ export default function SpendTrendChart({
   lastMonth,
   thisLabel,
   lastLabel,
+  budget,
 }: {
   days: number[];
   thisMonth: (number | null)[];
   lastMonth: (number | null)[];
   thisLabel: string;
   lastLabel: string;
+  /** The month's budget, drawn as a horizontal reference line when positive. */
+  budget?: number | null;
 }) {
   const theme = useTheme();
   const mounted = useMounted();
@@ -62,6 +66,11 @@ export default function SpendTrendChart({
     },
   ];
 
+  // The auto y-axis only fits the data, so lift it when spending is still under budget.
+  const showBudget = budget != null && budget > 0;
+  const dataMax = Math.max(0, ...[...thisMonth, ...lastMonth].filter((v): v is number => v != null));
+  const yMax = showBudget && budget > dataMax ? budget * 1.1 : undefined;
+
   if (!mounted) return <Box sx={{ height: 220 }} aria-hidden />;
 
   return (
@@ -77,7 +86,7 @@ export default function SpendTrendChart({
           tickInterval: days.filter((day) => day === 1 || day % 5 === 0),
         },
       ]}
-      yAxis={[{ valueFormatter: (v: number) => formatMoneyCompact(v), width: 60 }]}
+      yAxis={[{ max: yMax, valueFormatter: (v: number) => formatMoneyCompact(v), width: 60 }]}
       margin={{ top: 10, right: 12, bottom: 4, left: 4 }}
       slotProps={{ tooltip: { trigger: "axis" } }}
       sx={{
@@ -85,6 +94,16 @@ export default function SpendTrendChart({
         [`& .${lineClasses.line}[data-series="thisMonth"]`]: { strokeWidth: 2.5 },
         [`& .${lineClasses.area}[data-series="thisMonth"]`]: { fillOpacity: 0.12 },
       }}
-    />
+    >
+      {showBudget ? (
+        <ChartsReferenceLine
+          y={budget}
+          label={`Budget ${formatMoneyCompact(budget)}`}
+          labelAlign="start"
+          lineStyle={{ stroke: ghost, strokeWidth: 1, opacity: 0.7 }}
+          labelStyle={{ fill: ghost, fontSize: 11 }}
+        />
+      ) : null}
+    </LineChart>
   );
 }

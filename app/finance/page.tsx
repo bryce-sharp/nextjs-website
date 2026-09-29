@@ -227,6 +227,7 @@ export default async function BudgetPage({
       <BudgetInsights
         d={{
           trend,
+          budget: view.hasIncome ? d(disc.budgetC) : null,
           topPurchases,
           topMerchants,
           details: {
