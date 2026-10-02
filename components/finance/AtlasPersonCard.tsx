@@ -90,13 +90,17 @@ export default function AtlasPersonCard({
   editable,
   yearOptions,
   defaultMonth,
+  accounts,
 }: {
   person: AtlasPersonProps;
   editable: boolean;
   yearOptions: number[];
   /** "YYYY-MM" (current month) for new effective-dated segments. */
   defaultMonth: string;
+  /** Accounts a deduction can land in (the "Goes into" picker). */
+  accounts: { id: number; name: string }[];
 }) {
+  const accountName = (id: number | null) => (id == null ? null : accounts.find((a) => a.id === id)?.name ?? null);
   const [compOpen, setCompOpen] = React.useState(false);
   const [editingDeduction, setEditingDeduction] =
     React.useState<DeductionValues | "new" | null>(null);
@@ -224,6 +228,11 @@ export default function AtlasPersonCard({
                       {d.source === "employer" ? (
                         <Chip label="employer-paid" size="small" sx={{ ml: 1 }} variant="outlined" />
                       ) : null}
+                      {accountName(d.depositAccountId) ? (
+                        <Typography variant="caption" color="text.secondary" component="div">
+                          into {accountName(d.depositAccountId)}
+                        </Typography>
+                      ) : null}
                     </TableCell>
                     <TableCell>{d.type ? (TYPE_LABEL[d.type] ?? d.type) : "—"}</TableCell>
                     <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
@@ -288,6 +297,7 @@ export default function AtlasPersonCard({
           deduction={editingDeduction === "new" ? null : editingDeduction}
           yearOptions={yearOptions}
           defaultMonth={defaultMonth}
+          accounts={accounts}
         />
       ) : null}
     </Paper>

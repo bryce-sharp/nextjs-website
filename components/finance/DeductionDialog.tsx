@@ -40,6 +40,7 @@ export type DeductionValues = {
   isPercent: boolean;
   monthly: number;
   pctOfGross: number | null;
+  depositAccountId: number | null; // the account it lands in (401k, HSA)
   notes: string | null;
 };
 
@@ -62,6 +63,7 @@ export default function DeductionDialog({
   deduction,
   yearOptions,
   defaultMonth,
+  accounts,
 }: {
   open: boolean;
   onClose: () => void;
@@ -70,6 +72,8 @@ export default function DeductionDialog({
   deduction: DeductionValues | null; // null = add new
   yearOptions: number[];
   defaultMonth: string;
+  /** Where a deduction can land (non-archived financial accounts). */
+  accounts: { id: number; name: string }[];
 }) {
   const [flavor, setFlavor] = React.useState<"fix" | "asof">("fix");
   const [startMonth, setStartMonth] = React.useState(defaultMonth);
@@ -210,6 +214,24 @@ export default function DeductionDialog({
                 <MenuItem value="employer">Employer (benefit)</MenuItem>
               </TextField>
             </Box>
+            {accounts.length > 0 ? (
+              <TextField
+                name="depositAccountId"
+                label="Goes into (optional)"
+                select
+                defaultValue={deduction?.depositAccountId ?? ""}
+                helperText="For a 401k or HSA: the account it lands in, so Net Worth can split that account's growth into paycheck money and market."
+              >
+                <MenuItem value="">
+                  <em>Nowhere you track (taxes, insurance)</em>
+                </MenuItem>
+                {accounts.map((a) => (
+                  <MenuItem key={a.id} value={a.id}>
+                    {a.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            ) : null}
             <TextField
               name="notes"
               label="Notes (optional)"

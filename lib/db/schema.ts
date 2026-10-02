@@ -694,6 +694,13 @@ export const incomeDeductions = pgTable(
     // the dollar amount is derived from whichever comp plan is effective.
     amountPerPaycheck: numeric("amount_per_paycheck", { precision: 10, scale: 2 }),
     percentOfGross: numeric("percent_of_gross", { precision: 5, scale: 2 }),
+    // Where the money lands (a 401k → the retirement account, an HSA → the
+    // HSA), so Net Worth can split that account's growth into paycheck
+    // contributions vs everything else. null = it leaves for good (taxes).
+    depositAccountId: integer("deposit_account_id").references(
+      () => financialAccounts.id,
+      { onDelete: "set null" },
+    ),
     notes: text("notes"),
     startDate: date("start_date").notNull(),
     endDate: date("end_date"),

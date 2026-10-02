@@ -16,15 +16,18 @@ import SavingsGoalDialog from "./SavingsGoalDialog";
 export default function NetWorthActions({
   snapshotAccounts,
   allAccounts,
-  defaultMonth,
+  logMonth,
+  goalMonth,
   balancesByMonth,
   yearOptions,
   activeGoal,
 }: {
   snapshotAccounts: SnapshotAccount[];
   allAccounts: ManagedAccount[];
-  /** "YYYY-MM" — the current calendar month. */
-  defaultMonth: string;
+  /** "YYYY-MM" — the month that just closed (the 1st-of-month ritual logs it). */
+  logMonth: string;
+  /** "YYYY-MM" — the current calendar month, where a new goal starts. */
+  goalMonth: string;
   /** "YYYY-MM" → { accountId: balance }, for the per-month prefill. */
   balancesByMonth: Record<string, Record<number, number | null>>;
   yearOptions: number[];
@@ -66,7 +69,7 @@ export default function NetWorthActions({
           open
           onClose={() => setLogOpen(false)}
           accounts={snapshotAccounts}
-          month={defaultMonth}
+          month={logMonth}
           balancesByMonth={balancesByMonth}
           yearOptions={yearOptions}
         />
@@ -83,7 +86,7 @@ export default function NetWorthActions({
           open
           onClose={() => setGoalOpen(false)}
           activeGoal={activeGoal}
-          defaultMonth={defaultMonth}
+          defaultMonth={goalMonth}
           yearOptions={yearOptions}
         />
       ) : null}

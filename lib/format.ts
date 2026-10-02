@@ -53,6 +53,33 @@ export function formatMoneyCompact(value: number): string {
   return money.format(value).replace(/\.\d+$/, "");
 }
 
+const wholeMoney = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0,
+});
+
+/** "$143,560": dollars without cents, for balances where cents are noise. */
+export function formatMoneyWhole(value: number): string {
+  return wholeMoney.format(value);
+}
+
+/** "$143.6k" / "$1.2M" / "$157": a balance short enough for a phone column. */
+export function formatMoneyShort(value: number): string {
+  const a = Math.abs(value);
+  const sign = value < 0 ? "−" : "";
+  const trim = (n: number, d: number) => n.toFixed(d).replace(/\.0$/, "");
+  if (a >= 999_950) return `${sign}$${trim(a / 1_000_000, a >= 9_999_500 ? 0 : 1)}M`;
+  if (a >= 999.5) return `${sign}$${trim(a / 1000, 1)}k`;
+  return `${sign}$${Math.round(a)}`;
+}
+
+/** formatMoneyShort / formatMoneyWhole that wear their sign: "+$17.8k", "−$2,505". */
+export function formatMoneyDelta(value: number, short = false): string {
+  const body = short ? formatMoneyShort(Math.abs(value)) : formatMoneyWhole(Math.abs(value));
+  return `${value >= 0 ? "+" : "−"}${body}`;
+}
+
 /** "Aug 2026" from a YYYY-MM-01 month string. */
 export function formatMonth(month: string): string {
   const d = new Date(`${month.slice(0, 7)}-01T12:00:00`);

@@ -90,6 +90,7 @@ export default async function AtlasPage({
       isPercent: d.isPercent,
       monthly: d.monthly,
       pctOfGross: d.pctOfGross,
+      depositAccountId: d.depositAccountId,
       notes: d.notes,
     })),
   }));
@@ -211,6 +212,7 @@ export default async function AtlasPage({
             editable={editable}
             yearOptions={yearOptions}
             defaultMonth={defaultMonth}
+            accounts={accounts}
           />
         ))}
       </Box>

@@ -34,7 +34,7 @@ const cents = (v: string | number | null | undefined): number =>
   v == null ? 0 : Math.round(Number(v) * 100);
 const dollars = (c: number): number => Math.round(c) / 100;
 
-const PAYCHECKS_PER_YEAR: Record<string, number> = {
+export const PAYCHECKS_PER_YEAR: Record<string, number> = {
   weekly: 52,
   biweekly: 26,
   semimonthly: 24,
@@ -42,8 +42,19 @@ const PAYCHECKS_PER_YEAR: Record<string, number> = {
 };
 
 type Dated = { startDate: string; endDate: string | null };
-const effectiveAt = <T extends Dated>(rows: T[], asOf: string): T[] =>
+export const effectiveAt = <T extends Dated>(rows: T[], asOf: string): T[] =>
   rows.filter((r) => r.startDate <= asOf && (r.endDate === null || r.endDate >= asOf));
+
+/** A deduction's per-paycheck cents: flat $, or % of the effective gross (percent
+ *  rows ride along with raises automatically). */
+export function deductionPerCheckC(
+  d: Pick<IncomeDeduction, "percentOfGross" | "amountPerPaycheck">,
+  grossC: number,
+): number {
+  return d.percentOfGross != null
+    ? Math.round((grossC * Number(d.percentOfGross)) / 100)
+    : cents(d.amountPerPaycheck);
+}
 
 export type AtlasDeductionRow = IncomeDeduction & {
   /** The row's $ per paycheck: the flat amount, or (for %-based rows) the
@@ -216,12 +227,7 @@ export async function getAtlasViewForGroup(
     );
 
     const grossC = cents(plan.grossPerPaycheck);
-    // A row's per-paycheck cents: flat $, or % of the effective gross (percent
-    // rows ride along with raises automatically).
-    const perCheckC = (d: IncomeDeduction): number =>
-      d.percentOfGross != null
-        ? Math.round((grossC * Number(d.percentOfGross)) / 100)
-        : cents(d.amountPerPaycheck);
+    const perCheckC = (d: IncomeDeduction): number => deductionPerCheckC(d, grossC);
 
     const payrollC = deductions
       .filter((d) => d.source === "payroll")

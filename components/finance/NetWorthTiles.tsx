@@ -2,12 +2,10 @@ import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import LinearProgress from "@mui/material/LinearProgress";
-import {
-  formatMoney,
-  formatMoneySigned,
-  formatMonth,
-} from "@/lib/format";
+import { formatMoney, formatMoneyWhole, formatMonth } from "@/lib/format";
+import { monthDiff } from "@/lib/finance/net-worth";
 import type { NetWorthStats } from "@/lib/queries/finance-networth";
+import Money from "./Money";
 
 // Server component — the top-of-page stat grid (weight-app Tile composition).
 function Tile({
@@ -18,22 +16,24 @@ function Tile({
   children,
 }: {
   label: string;
-  value?: string;
-  sub?: string;
+  value?: React.ReactNode;
+  sub?: React.ReactNode;
   color?: string;
   children?: React.ReactNode;
 }) {
   return (
-    <Paper variant="outlined" sx={{ p: 2 }}>
+    <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, minWidth: 0 }}>
       <Typography
         variant="caption"
         color="text.secondary"
+        noWrap
+        component="div"
         sx={{ textTransform: "uppercase", letterSpacing: "0.04em" }}
       >
         {label}
       </Typography>
       {value != null ? (
-        <Typography variant="h5" component="div" sx={{ mt: 0.5, color }}>
+        <Typography variant="h5" component="div" sx={{ mt: 0.5, color, whiteSpace: "nowrap" }}>
           {value}
         </Typography>
       ) : null}
@@ -52,10 +52,15 @@ const deltaColor = (n: number | null) =>
 
 export default function NetWorthTiles({
   stats,
+  startMonth,
+  rangeLabel,
   activeGoal,
   editor,
 }: {
   stats: NetWorthStats;
+  /** The window's starting point (YYYY-MM-01) growth is measured from. */
+  startMonth: string;
+  rangeLabel: string;
   /** The open-ended goal segment, if any — used to explain a missing goal line. */
   activeGoal: { monthlyGoal: number; startMonth: string } | null;
   editor: boolean;
@@ -64,53 +69,46 @@ export default function NetWorthTiles({
     stats.bankCumulative != null && stats.bankGoalToDate != null && stats.bankGoalToDate > 0
       ? (stats.bankCumulative / stats.bankGoalToDate) * 100
       : null;
+  const elapsed = monthDiff(startMonth, stats.currentMonth);
+  // Rounded to cents like the outlook's pace, so the two never differ by a dollar.
+  const perMonth =
+    stats.rangeChange != null && elapsed > 0 ? Math.round((stats.rangeChange / elapsed) * 100) / 100 : null;
 
   return (
     <Box
       sx={{
         display: "grid",
         gap: 1.5,
-        gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" },
-        mb: 3,
+        gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(0, 1fr))" },
+        mb: 2,
       }}
     >
       <Tile
         label="Net worth"
-        value={formatMoney(stats.currentTotal)}
-        sub={`as of ${formatMonth(stats.currentMonth)}`}
+        value={<Money value={stats.currentTotal} />}
+        sub={`end of ${formatMonth(stats.currentMonth)}`}
       />
       <Tile
-        label="Month over month"
-        value={stats.mom == null ? "—" : formatMoneySigned(stats.mom)}
-        color={deltaColor(stats.mom)}
-      />
-      <Tile
-        label="This year"
-        value={stats.cumulative == null ? "—" : formatMoneySigned(stats.cumulative)}
-        color={deltaColor(stats.cumulative)}
+        label={rangeLabel}
+        value={stats.rangeChange == null ? "—" : <Money value={stats.rangeChange} signed />}
+        color={deltaColor(stats.rangeChange)}
         sub={
-          stats.cumulativePct != null
-            ? `${stats.cumulativePct >= 0 ? "+" : "−"}${Math.abs(stats.cumulativePct).toFixed(1)}% since baseline`
+          stats.rangeChangePct != null
+            ? `${stats.rangeChangePct >= 0 ? "+" : "−"}${Math.abs(stats.rangeChangePct).toFixed(1)}% since ${formatMonth(startMonth)}`
             : undefined
         }
       />
       <Tile
-        label="Bank saved vs goal"
-        value={
-          stats.bankCumulative == null ? "—" : formatMoneySigned(stats.bankCumulative)
-        }
+        label="Bank saved"
+        value={stats.bankCumulative == null ? "—" : <Money value={stats.bankCumulative} signed />}
         color={
-          stats.bankVsGoal == null
-            ? undefined
-            : stats.bankVsGoal >= 0
-              ? "success.main"
-              : "warning.main"
+          stats.bankVsGoal == null ? undefined : stats.bankVsGoal >= 0 ? "success.main" : "warning.main"
         }
         sub={
           stats.bankGoalToDate != null && stats.bankVsGoal != null
-            ? `goal ${formatMoney(stats.bankGoalToDate)} · ${formatMoneySigned(stats.bankVsGoal)} vs plan`
+            ? `${formatMoneyWhole(Math.abs(stats.bankVsGoal))} ${stats.bankVsGoal >= 0 ? "ahead of" : "behind"} the ${formatMoneyWhole(stats.bankGoalToDate)} goal`
             : // A goal can exist and still have no line here: it starts after the
-              // last month logged (or after this whole year). Say which, so the
+              // last month logged (or after this whole window). Say which, so the
               // tile never contradicts the "Saving goal $X/mo" in the header.
               activeGoal
               ? `${formatMoney(activeGoal.monthlyGoal)}/mo goal starts ${formatMonth(activeGoal.startMonth)}`
@@ -124,10 +122,16 @@ export default function NetWorthTiles({
             variant="determinate"
             value={Math.max(0, Math.min(100, goalPct))}
             color={goalPct >= 100 ? "success" : "primary"}
-            sx={{ mt: 1.5, height: 8, borderRadius: 4 }}
+            sx={{ mt: 1, height: 6, borderRadius: 3 }}
           />
         ) : null}
       </Tile>
+      <Tile
+        label="Per month"
+        value={perMonth == null ? "—" : <Money value={perMonth} signed />}
+        color={deltaColor(perMonth)}
+        sub={elapsed > 0 ? `average over ${elapsed} month${elapsed === 1 ? "" : "s"}` : undefined}
+      />
     </Box>
   );
 }

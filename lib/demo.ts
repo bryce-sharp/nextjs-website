@@ -481,9 +481,9 @@ export async function reseedDemoGroup(groupId: number): Promise<void> {
     { profileId: alex.id, name: "Social Security", type: "tax", source: "payroll", percentOfGross: "6.20", startDate: finStart },
     { profileId: alex.id, name: "Medicare", type: "tax", source: "payroll", percentOfGross: "1.45", startDate: finStart },
     { profileId: alex.id, name: "Medical", type: "insurance", source: "payroll", amountPerPaycheck: "180.00", startDate: finStart },
-    { profileId: alex.id, name: "401(k)", type: "retirement", source: "payroll", percentOfGross: "8.00", startDate: finStart },
+    { profileId: alex.id, name: "401(k)", type: "retirement", source: "payroll", percentOfGross: "8.00", depositAccountId: idByName["401(k)"], startDate: finStart },
     { profileId: alex.id, name: "HSA", type: "health", source: "payroll", amountPerPaycheck: "75.00", startDate: finStart },
-    { profileId: alex.id, name: "401(k) match", type: "retirement", source: "employer", percentOfGross: "4.00", startDate: finStart },
+    { profileId: alex.id, name: "401(k) match", type: "retirement", source: "employer", percentOfGross: "4.00", depositAccountId: idByName["401(k)"], startDate: finStart },
     { profileId: alex.id, name: "HSA contribution", type: "health", source: "employer", amountPerPaycheck: "40.00", startDate: finStart },
   ]);
 
