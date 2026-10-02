@@ -21,7 +21,7 @@ export type SnapshotAccount = { id: number; name: string };
 // month is picked with explicit dropdowns (no free-form text), and the $ fields
 // always reflect the SELECTED month's stored balances — so switching to a past
 // month to backfill shows that month's values, and opening fresh always starts
-// on the current month. Blank fields are skipped server-side (a partial log
+// on the month that just closed (balances are logged on the 1st for it). Blank fields are skipped server-side (a partial log
 // never wipes an existing balance); re-logging a month overwrites it.
 export default function SnapshotDialog({
   open,
@@ -44,7 +44,7 @@ export default function SnapshotDialog({
 }) {
   // Selected month lives here; re-initializes to `month` every time the dialog
   // mounts (the parent conditionally renders it), so "Log balances" always
-  // opens on the current month regardless of a prior backfill.
+  // opens on the month that just closed regardless of a prior backfill.
   const [ym, setYm] = React.useState(month);
   const [error, setError] = React.useState<string | null>(null);
 

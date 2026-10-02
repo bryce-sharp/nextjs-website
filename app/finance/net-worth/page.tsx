@@ -1,37 +1,56 @@
+import { redirect } from "next/navigation";
 import Container from "@mui/material/Container";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
 import SavingsOutlinedIcon from "@mui/icons-material/SavingsOutlined";
 import { isEditor } from "@/lib/auth";
-import { getNetWorthDashboard } from "@/lib/queries/finance-networth";
+import { getSession } from "@/lib/session";
+import { getGroupTimezone } from "@/lib/queries/group";
+import { todayISO } from "@/lib/finance/parse";
+import { addMonths, rangeLabel, type NetWorthRange } from "@/lib/finance/net-worth";
+import {
+  getNetWorthDashboardForGroup,
+  getNetWorthExtrasForGroup,
+} from "@/lib/queries/finance-networth";
 import { formatMoney } from "@/lib/format";
 import NetWorthActions from "@/components/finance/NetWorthActions";
 import NetWorthTiles from "@/components/finance/NetWorthTiles";
-import NetWorthChart from "@/components/finance/NetWorthChart";
-import SnapshotHistoryTable from "@/components/finance/SnapshotHistoryTable";
-import YearSwitcher from "@/components/finance/YearSwitcher";
+import NetWorthOverview from "@/components/finance/NetWorthOverview";
+import NetWorthInsights from "@/components/finance/NetWorthInsights";
+import NetWorthRangePicker from "@/components/finance/NetWorthRangePicker";
+import MonthlyLog from "@/components/finance/MonthlyLog";
+import DueMonthBanner from "@/components/finance/DueMonthBanner";
 
 export const metadata = { title: "Net Worth" };
 
+const RANGES: NetWorthRange[] = ["year", "12mo", "all"];
+
 // The Net Worth tab (F1 of the finance app): monthly per-account balances →
-// derived totals/MoM/growth + the bank-saved-vs-goal line. Household data:
-// everyone in the group sees it; edit mode gates the writes.
+// growth, where the money lives, bank saved vs its goal, and what the pace
+// and the bank cushion mean going forward. Household data: everyone in the
+// group sees it; edit mode gates the writes.
 export default async function NetWorthPage({
   searchParams,
 }: {
-  searchParams: Promise<{ year?: string }>;
+  searchParams: Promise<{ range?: string }>;
 }) {
-  const { year } = await searchParams;
+  const session = await getSession();
+  if (session === null) redirect("/login");
+  const { range: rawRange } = await searchParams;
+  const range = RANGES.includes(rawRange as NetWorthRange) ? (rawRange as NetWorthRange) : "year";
+
+  const groupId = session.groupId;
+  const today = todayISO(await getGroupTimezone(groupId));
   const [dash, editor] = await Promise.all([
-    getNetWorthDashboard(year ? Number(year) : undefined),
+    getNetWorthDashboardForGroup(groupId, range, today),
     isEditor(),
   ]);
+  const extras = await getNetWorthExtrasForGroup(groupId, dash, today);
 
-  // Current calendar month for the log dialog (server-computed, tz-shifted).
-  const now = new Date();
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  const currentMonth = now.toISOString().slice(0, 7);
+  const currentMonth = today.slice(0, 7);
+  // Balances are logged on the 1st for the month that just closed.
+  const logMonth = addMonths(`${currentMonth}-01`, -1).slice(0, 7);
 
   // Serializable slices for the client components.
   const snapshotAccounts = dash.allAccounts
@@ -47,21 +66,18 @@ export default async function NetWorthPage({
     archived: a.archivedAt !== null,
     notes: a.notes,
   }));
-  const gridAccounts = dash.accounts.map((a) => ({ id: a.id, name: a.name }));
-
-  // "YYYY-MM" → { accountId: balance } for the dialog's per-month prefill, so
-  // switching months (or backfilling a past one) always shows that month's data.
-  const balancesByMonth: Record<string, Record<number, number | null>> = {};
-  dash.months.forEach((m, i) => {
-    balancesByMonth[m.slice(0, 7)] = Object.fromEntries(
-      dash.accounts.map((a) => [a.id, dash.balances[a.id]?.[i] ?? null]),
-    );
-  });
+  const windowAccounts = dash.accounts.map((a) => ({
+    id: a.id,
+    name: a.name,
+    kind: a.kind,
+    includeInBankSaved: a.includeInBankSaved,
+    archived: a.archivedAt !== null,
+  }));
 
   // Year dropdown: current year back through the oldest data (min 6 years back),
   // so backfilling an arbitrary past month is always possible.
   const cy = Number(currentMonth.slice(0, 4));
-  const minYear = Math.min(cy - 5, ...(dash.availableYears.length ? dash.availableYears : [cy]));
+  const minYear = Math.min(cy - 5, dash.firstLogged ? Number(dash.firstLogged.slice(0, 4)) : cy);
   const yearOptions: number[] = [];
   for (let y = cy; y >= minYear; y--) yearOptions.push(y);
 
@@ -72,7 +88,8 @@ export default async function NetWorthPage({
       }
     : null;
 
-  const hasData = dash.months.length > 0;
+  const last = dash.months.length - 1;
+  const hasData = last >= 0 && dash.stats !== null;
 
   return (
     <Container maxWidth="md" sx={{ py: { xs: 4, md: 6 } }}>
@@ -81,7 +98,7 @@ export default async function NetWorthPage({
         alignItems="flex-start"
         justifyContent="space-between"
         spacing={2}
-        sx={{ mb: 3, flexWrap: "wrap", rowGap: 2 }}
+        sx={{ mb: 2, flexWrap: "wrap", rowGap: 2 }}
       >
         <Stack spacing={0.5}>
           <Typography variant="h3" component="h1">
@@ -97,18 +114,28 @@ export default async function NetWorthPage({
           <NetWorthActions
             snapshotAccounts={snapshotAccounts}
             allAccounts={managedAccounts}
-            defaultMonth={currentMonth}
-            balancesByMonth={balancesByMonth}
+            logMonth={logMonth}
+            goalMonth={currentMonth}
+            balancesByMonth={dash.balancesByMonth}
             yearOptions={yearOptions}
             activeGoal={activeGoal}
           />
         ) : null}
       </Stack>
 
-      {dash.availableYears.length > 1 ? (
-        <Stack direction="row" sx={{ mb: 3 }}>
-          <YearSwitcher years={dash.availableYears} current={dash.year} />
+      {hasData ? (
+        <Stack direction="row" sx={{ mb: 2 }}>
+          <NetWorthRangePicker current={range} />
         </Stack>
+      ) : null}
+
+      {editor && dash.dueMonth && snapshotAccounts.length > 0 ? (
+        <DueMonthBanner
+          month={dash.dueMonth}
+          accounts={snapshotAccounts}
+          balancesByMonth={dash.balancesByMonth}
+          yearOptions={yearOptions}
+        />
       ) : null}
 
       {!hasData || !dash.stats ? (
@@ -126,27 +153,46 @@ export default async function NetWorthPage({
         </Paper>
       ) : (
         <>
-          <NetWorthTiles stats={dash.stats} activeGoal={activeGoal} editor={editor} />
+          <NetWorthTiles
+            stats={dash.stats}
+            startMonth={dash.months[0]}
+            rangeLabel={rangeLabel(range)}
+            activeGoal={activeGoal}
+            editor={editor}
+          />
 
-          <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2.5 }, mb: 3 }}>
-            <Typography variant="h6" sx={{ mb: 1.5, px: 1 }}>
-              Where it lives
-            </Typography>
-            <NetWorthChart
-              months={dash.months}
-              accounts={gridAccounts}
-              balances={dash.balances}
-            />
-          </Paper>
-
-          <SnapshotHistoryTable
+          <NetWorthOverview
+            range={range}
             months={dash.months}
             windowStart={dash.windowStart}
-            accounts={gridAccounts}
+            accounts={windowAccounts}
             balances={dash.balances}
             totals={dash.totals}
-            mom={dash.mom}
-            balancesByMonth={balancesByMonth}
+            bank={{
+              names: dash.accounts.filter((a) => a.includeInBankSaved).map((a) => a.name),
+              cumulative: dash.bankSaved.cumulative,
+              goal: dash.bankSaved.goal,
+              monthlyGoal: activeGoal?.monthlyGoal ?? null,
+            }}
+            kept={extras.kept}
+          />
+
+          <NetWorthInsights
+            latestMonth={dash.months[last]}
+            latestTotal={dash.totals[last]}
+            pace={dash.pace}
+            runway={extras.runway}
+            today={today}
+          />
+
+          <MonthlyLog
+            months={dash.months}
+            windowStart={dash.windowStart}
+            accounts={windowAccounts.map((a) => ({ id: a.id, name: a.name }))}
+            balances={dash.balances}
+            totals={dash.totals}
+            missingMonths={dash.missingMonths}
+            balancesByMonth={dash.balancesByMonth}
             yearOptions={yearOptions}
             editor={editor}
           />
