@@ -2,9 +2,9 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { and, desc, eq, gte, isNull, lte, or } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { transactions, recurringExpenses } from "@/lib/db/schema";
+import { transactions, recurringExpenses, financialAccounts } from "@/lib/db/schema";
 import { parseAlertText, categorizeMerchant, type MerchantRule } from "@/lib/finance/sms";
-import { spendCategoryFor } from "@/lib/finance/categorize";
+import { longestMatchingRule, spendCategoryFor } from "@/lib/finance/categorize";
 import { spendRulesFor } from "@/lib/queries/finance-categories";
 import { todayISO, dateInTz } from "@/lib/finance/parse";
 import { getGroupTimezone } from "@/lib/queries/group";
@@ -53,6 +53,45 @@ export async function merchantRulesFor(groupId: number, onDate: string): Promise
     patterns: r.merchantPatterns ?? [],
     category: r.category,
   }));
+}
+
+export type TransferRule = { pattern: string; category: string; accountId: number };
+
+/** Each open account's transfer words. Wallets are spending money, so money
+ *  moved into one is never a transfer. */
+export async function transferRulesFor(groupId: number): Promise<TransferRule[]> {
+  const rows = await db
+    .select({
+      id: financialAccounts.id,
+      kind: financialAccounts.kind,
+      patterns: financialAccounts.transferPatterns,
+    })
+    .from(financialAccounts)
+    .where(and(eq(financialAccounts.groupId, groupId), isNull(financialAccounts.archivedAt)));
+  return rows
+    .filter((r) => r.kind !== "wallet")
+    .flatMap((r) => (r.patterns ?? []).map((pattern) => ({ pattern, category: "transfer", accountId: r.id })));
+}
+
+/**
+ * A row whose merchant names another account's transfer words is money moving
+ * between your accounts. A charge (positive) moves money from the row's
+ * account into the matched one; a credit (negative) moves it back, so the
+ * stored transfer is always positive, from → into.
+ */
+export function asTransfer(
+  merchant: string | null,
+  amount: string,
+  accountId: number | null,
+  rules: TransferRule[],
+): { accountId: number | null; transferAccountId: number; amount: string } | null {
+  if (!merchant) return null;
+  const hit = longestMatchingRule(merchant, rules.filter((r) => r.accountId !== accountId));
+  if (!hit) return null;
+  const n = Number(amount);
+  if (n >= 0) return { accountId, transferAccountId: hit.accountId, amount };
+  if (accountId == null) return null; // a credit needs to know where it landed
+  return { accountId: hit.accountId, transferAccountId: accountId, amount: Math.abs(n).toFixed(2) };
 }
 
 /**
@@ -150,23 +189,29 @@ export async function ingestAlert(
     parsed.instant != null ? dateInTz(parsed.instant, tz) : parsed.postedOn;
 
   const rules = await merchantRulesFor(groupId, postedOn);
-  const { category, recurringExpenseId } = categorizeMerchant(parsed.merchant, rules);
-  const spendCategory = spendCategoryFor(
-    category,
-    parsed.merchant,
-    billCategoryOf(recurringExpenseId, rules),
-    await spendRulesFor(groupId),
-  );
+  const transfer = asTransfer(parsed.merchant, parsed.amount, accountId, await transferRulesFor(groupId));
+  const matched = categorizeMerchant(parsed.merchant, rules);
+  const category = transfer ? "transfer" : matched.category;
+  const recurringExpenseId = transfer ? null : matched.recurringExpenseId;
+  const spendCategory = transfer
+    ? null
+    : spendCategoryFor(
+        category,
+        parsed.merchant,
+        billCategoryOf(recurringExpenseId, rules),
+        await spendRulesFor(groupId),
+      );
 
   const [row] = await db
     .insert(transactions)
     .values({
       groupId,
-      accountId,
+      accountId: transfer ? transfer.accountId : accountId,
+      transferAccountId: transfer?.transferAccountId ?? null,
       postedOn,
       merchant: parsed.merchant,
-      amount: parsed.amount,
-      originalAmount: parsed.amount,
+      amount: transfer?.amount ?? parsed.amount,
+      originalAmount: transfer?.amount ?? parsed.amount,
       category,
       recurringExpenseId,
       spendCategory,
@@ -275,10 +320,16 @@ export async function ingestStructured(
     ({ category, recurringExpenseId } = categorizeMerchant(merchant, rules));
   }
   const needsReview = merchant === null;
+  const transfer = asTransfer(merchant, amount, accountId, await transferRulesFor(groupId));
+  if (transfer) {
+    category = "transfer";
+    recurringExpenseId = null;
+  }
 
   // An explicit API category wins; otherwise derive it (bill inherit / rules).
-  let spendCategory = cleanStr(input.category, 40);
-  if (spendCategory == null) {
+  // Transfers are never tagged.
+  let spendCategory = transfer ? null : cleanStr(input.category, 40);
+  if (spendCategory == null && !transfer) {
     spendCategory = spendCategoryFor(
       category,
       merchant,
@@ -291,11 +342,12 @@ export async function ingestStructured(
     .insert(transactions)
     .values({
       groupId,
-      accountId,
+      accountId: transfer ? transfer.accountId : accountId,
+      transferAccountId: transfer?.transferAccountId ?? null,
       postedOn,
       merchant,
-      amount,
-      originalAmount: amount,
+      amount: transfer?.amount ?? amount,
+      originalAmount: transfer?.amount ?? amount,
       category,
       recurringExpenseId,
       spendCategory,

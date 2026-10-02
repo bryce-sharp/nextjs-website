@@ -28,6 +28,7 @@ export type TxnCategory =
   | "reimbursement"
   | "fund"
   | "income"
+  | "transfer"
   | "ignored";
 
 export type EngineTxn = {

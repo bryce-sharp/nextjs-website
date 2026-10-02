@@ -186,7 +186,7 @@ export default function ExpensesSection({
           label="Discretion left"
           value={formatMoney(totals.discretionLeft)}
           color={totals.discretionLeft >= 0 ? "success.main" : "warning.main"}
-          sub={totals.savingsGoal > 0 ? "net income − fixed − savings goal" : "net income − fixed"}
+          sub={totals.savingsGoal > 0 ? "net income − fixed − take-home savings" : "net income − fixed"}
         />
         {/* No headline on purpose: the sum is always monthly net minus the
             savings goal (fixed + discretion) — the information here is the

@@ -1,28 +1,27 @@
 import "server-only";
-import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, lte, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   financialAccounts,
   accountSnapshots,
-  savingsGoals,
   compensationPlans,
   incomeDeductions,
+  transactions,
   type FinancialAccount,
-  type SavingsGoal,
 } from "@/lib/db/schema";
 import { requireGroupId } from "@/lib/session";
 import { getGroupTimezone } from "@/lib/queries/group";
 import { profileInGroup } from "@/lib/queries/scope";
-import { goalForMonth } from "@/lib/finance/savings-goal";
 import { lastDayOfMonth, todayISO } from "@/lib/finance/parse";
 import {
+  CASH_KINDS,
   addMonths,
   monthDiff,
   paceOver,
   type NetWorthRange,
   type Pace,
 } from "@/lib/finance/net-worth";
-import { cashFlowByMonth, summarizeCashFlow } from "@/lib/queries/finance-cashflow";
+import { cashFlowByMonth } from "@/lib/queries/finance-cashflow";
 import {
   PAYCHECKS_PER_YEAR,
   deductionPerCheckC,
@@ -33,13 +32,13 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 // NET WORTH — reads + ALL derived metrics (nothing here is stored; same spirit
 // as MPG/weight). The sheet this replaces: monthly per-account balances, total,
-// MoM change, cumulative $/% growth vs a starting month, and the "bank saved"
-// subset (flagged accounts) tracked against an effective-dated monthly goal.
+// MoM change, and cumulative $/% growth vs a starting month. It only tracks
+// money up and down; the savings goal lives with the budget (ATLAS/History).
 //
 // A row's month is the month it closes (logged on the 1st of the next). Every
 // range reads from a starting point: This year starts at last year's final
 // row (the sheet's "Dec"), 12 months at the row a year before the newest, All
-// time at the first row. Growth and the goal line measure from it.
+// time at the first row. Growth measures from it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -61,9 +60,9 @@ export type NetWorthStats = {
   lastChange: { value: number; span: number } | null;
   rangeChange: number | null;
   rangeChangePct: number | null;
-  bankCumulative: number | null;
-  bankGoalToDate: number | null;
-  bankVsGoal: number | null; // cumulative − goalToDate (ahead/behind)
+  /** Checking + savings: the liquid money (the house fund). */
+  cashTotal: number;
+  cashChange: number | null;
 };
 
 /** Paycheck money flowing into one account (ATLAS deductions linked to it). */
@@ -75,6 +74,15 @@ export type AccountContributions = {
   employer: number;
   /** The deductions feeding it, e.g. ["401K"]. */
   names: string[];
+};
+
+/** Money that moved through one account in the window, from transactions. */
+export type AccountFlows = {
+  /** Aligned to `months`: transferred in / out since the starting point. */
+  movedIn: number[];
+  movedOut: number[];
+  /** Income that landed in the account, by tag (null = untagged), biggest first. */
+  landed: { tag: string | null; amount: number }[];
 };
 
 export type NetWorthDashboard = {
@@ -91,11 +99,8 @@ export type NetWorthDashboard = {
   /** Aligned to `months`; null = no snapshot for that account that month. */
   balances: Record<number, (number | null)[]>;
   totals: number[];
-  bankSaved: {
-    totals: number[]; // bank-flagged subset per month
-    cumulative: (number | null)[];
-    goal: (number | null)[]; // cumulative goal line; null before any segment
-  };
+  /** Checking + savings per month. */
+  cash: number[];
   /** Calendar months inside the window that were never logged. */
   missingMonths: string[];
   /** Last month, once it has closed and is not logged yet (the 1st-of-month ritual). */
@@ -107,7 +112,8 @@ export type NetWorthDashboard = {
   stats: NetWorthStats | null;
   /** By account id, only for accounts some deduction lands in. */
   contributions: Record<number, AccountContributions>;
-  activeGoal: SavingsGoal | null;
+  /** By account id, only for accounts with transfers or income in the window. */
+  flows: Record<number, AccountFlows>;
   /** Oldest month ever logged (YYYY-MM-01), for the log dialog's years. */
   firstLogged: string | null;
 };
@@ -160,7 +166,7 @@ export async function getNetWorthDashboardForGroup(
     .orderBy(...accountOrder);
 
   const accountIds = allAccounts.map((a) => a.id);
-  const [snaps, goals, plans, linked] = await Promise.all([
+  const [snaps, plans, linked] = await Promise.all([
     accountIds.length
       ? db
           .select()
@@ -168,11 +174,6 @@ export async function getNetWorthDashboardForGroup(
           .where(inArray(accountSnapshots.accountId, accountIds))
           .orderBy(asc(accountSnapshots.month))
       : Promise.resolve([]),
-    db
-      .select()
-      .from(savingsGoals)
-      .where(eq(savingsGoals.groupId, groupId))
-      .orderBy(asc(savingsGoals.startMonth), asc(savingsGoals.id)),
     db
       .select()
       .from(compensationPlans)
@@ -189,7 +190,6 @@ export async function getNetWorthDashboardForGroup(
       )
       .orderBy(asc(incomeDeductions.startDate), asc(incomeDeductions.id)),
   ]);
-  const activeGoal = goals.findLast((g) => g.endMonth === null) ?? null;
 
   // month → accountId → balance
   const byMonth = new Map<string, Map<number, number>>();
@@ -229,39 +229,15 @@ export async function getNetWorthDashboardForGroup(
     balances[a.id] = months.map((m) => byMonth.get(m)?.get(a.id) ?? null);
   }
   const totals = months.map(totalOf);
-  const bankIds = new Set(accounts.filter((a) => a.includeInBankSaved).map((a) => a.id));
-  const bankTotals = months.map((m) => {
+  const cashIds = new Set(accounts.filter((a) => CASH_KINDS.includes(a.kind)).map((a) => a.id));
+  const cash = months.map((m) => {
     let sum = 0;
-    for (const [id, v] of byMonth.get(m) ?? []) if (bankIds.has(id)) sum += v;
+    for (const [id, v] of byMonth.get(m) ?? []) if (cashIds.has(id)) sum += v;
     return round2(sum);
   });
 
   // Cumulative vs the starting point (months[0]).
-  const cumOf = (series: number[]) =>
-    series.map((v, i) => (i === 0 ? null : round2(v - series[0])));
-  const cumulative = cumOf(totals);
-  const bankCumulative = cumOf(bankTotals);
-
-  // Goal line: each CALENDAR month after the starting point adds that month's
-  // goal, so a month left unlogged still counts toward what should be saved.
-  // Null until a segment covers some month.
-  const goal: (number | null)[] = months.map(() => null);
-  if (months.length > 1) {
-    let running = 0;
-    let seen = false;
-    let i = 1;
-    for (let m = addMonths(months[0], 1); m <= months[months.length - 1]; m = addMonths(m, 1)) {
-      const seg = goalForMonth(goals, m);
-      if (seg) {
-        seen = true;
-        running = round2(running + Number(seg.monthlyGoal));
-      }
-      if (m === months[i]) {
-        goal[i] = seen ? running : null;
-        i++;
-      }
-    }
-  }
+  const cumulative = totals.map((v, i) => (i === 0 ? null : round2(v - totals[0])));
 
   const missingMonths: string[] = [];
   if (months.length > 1) {
@@ -272,6 +248,7 @@ export async function getNetWorthDashboardForGroup(
   }
 
   const contributions = contributionsFor(months, accounts, plans, linked);
+  const flows = await flowsFor(groupId, months, accounts);
 
   const last = months.length - 1;
   const stats: NetWorthStats | null =
@@ -291,12 +268,8 @@ export async function getNetWorthDashboardForGroup(
             cumulative[last] != null && totals[0] !== 0
               ? round2((cumulative[last]! / Math.abs(totals[0])) * 100)
               : null,
-          bankCumulative: bankIds.size ? bankCumulative[last] : null,
-          bankGoalToDate: goal[last],
-          bankVsGoal:
-            bankIds.size && bankCumulative[last] != null && goal[last] != null
-              ? round2(bankCumulative[last]! - goal[last]!)
-              : null,
+          cashTotal: cash[last],
+          cashChange: last > 0 ? round2(cash[last] - cash[0]) : null,
         }
       : null;
 
@@ -308,16 +281,84 @@ export async function getNetWorthDashboardForGroup(
     windowStart,
     balances,
     totals,
-    bankSaved: { totals: bankTotals, cumulative: bankCumulative, goal },
+    cash,
     missingMonths,
     dueMonth,
     balancesByMonth,
     pace,
     stats,
     contributions,
-    activeGoal,
+    flows,
     firstLogged: allMonths[0] ?? null,
   };
+}
+
+/**
+ * Transfers and income per account across the window, by the month they
+ * posted: the same (starting point, newest] span the snapshots cover.
+ */
+async function flowsFor(
+  groupId: number,
+  months: string[],
+  accounts: FinancialAccount[],
+): Promise<Record<number, AccountFlows>> {
+  if (months.length < 2 || accounts.length === 0) return {};
+  const ids = accounts.map((a) => a.id);
+  const rows = await db
+    .select({
+      postedOn: transactions.postedOn,
+      amount: transactions.amount,
+      category: transactions.category,
+      accountId: transactions.accountId,
+      transferAccountId: transactions.transferAccountId,
+      tag: transactions.spendCategory,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.groupId, groupId),
+        eq(transactions.needsReview, false),
+        inArray(transactions.category, ["income", "transfer"]),
+        gte(transactions.postedOn, addMonths(months[0], 1)),
+        lte(transactions.postedOn, lastDayOfMonth(months[months.length - 1])),
+        or(inArray(transactions.accountId, ids), inArray(transactions.transferAccountId, ids)),
+      ),
+    );
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const out: Record<number, AccountFlows> = {};
+  const get = (id: number) =>
+    (out[id] ??= { movedIn: months.map(() => 0), movedOut: months.map(() => 0), landed: [] });
+  const landed = new Map<number, Map<string | null, number>>();
+  // A posting counts toward every logged month at or after its own month.
+  const addFrom = (series: number[], postedOn: string, amount: number) => {
+    const m = `${postedOn.slice(0, 7)}-01`;
+    for (let i = 1; i < months.length; i++) if (months[i] >= m) series[i] += amount;
+  };
+  for (const r of rows) {
+    const amount = Number(r.amount);
+    if (r.category === "transfer") {
+      if (r.transferAccountId != null && ids.includes(r.transferAccountId)) {
+        addFrom(get(r.transferAccountId).movedIn, r.postedOn, amount);
+      }
+      if (r.accountId != null && ids.includes(r.accountId)) {
+        addFrom(get(r.accountId).movedOut, r.postedOn, amount);
+      }
+    } else if (r.accountId != null && ids.includes(r.accountId)) {
+      get(r.accountId);
+      const byTag = landed.get(r.accountId) ?? new Map<string | null, number>();
+      byTag.set(r.tag, (byTag.get(r.tag) ?? 0) + amount);
+      landed.set(r.accountId, byTag);
+    }
+  }
+  for (const [id, f] of Object.entries(out)) {
+    f.movedIn = f.movedIn.map(round2);
+    f.movedOut = f.movedOut.map(round2);
+    f.landed = [...(landed.get(Number(id)) ?? [])]
+      .map(([tag, amount]) => ({ tag, amount: round2(amount) }))
+      .sort((a, b) => b.amount - a.amount);
+  }
+  return out;
 }
 
 /**
@@ -411,10 +452,8 @@ function contributionsFor(
 }
 
 export type NetWorthExtras = {
-  /** Budget cash flow over the same months the range covers (the bank check). */
-  kept: { moneyIn: number; moneyOut: number; kept: number; from: string; to: string } | null;
   runway: {
-    cash: number; // bank-saved accounts, newest row
+    cash: number; // checking + savings, newest row
     brokerage: number; // brokerage accounts, newest row
     avgOut: number | null; // average money out per month, last full months
     avgOutMonths: number;
@@ -422,7 +461,7 @@ export type NetWorthExtras = {
   } | null;
 };
 
-/** Cross-app numbers: the budget's cash flow and ATLAS bills next to the balances. */
+/** Cross-app numbers: the budget's spending and ATLAS bills next to the balances. */
 export async function getNetWorthExtrasForGroup(
   groupId: number,
   dash: NetWorthDashboard,
@@ -432,30 +471,13 @@ export async function getNetWorthExtrasForGroup(
   const last = months.length - 1;
   const thisMonth = `${today.slice(0, 7)}-01`;
 
-  const [summary, outMonths, atlas] = await Promise.all([
-    last > 0
-      ? summarizeCashFlow(groupId, {
-          from: addMonths(months[0], 1),
-          to: lastDayOfMonth(months[last]),
-        })
-      : Promise.resolve(null),
+  const [outMonths, atlas] = await Promise.all([
     cashFlowByMonth(groupId, {
       from: addMonths(thisMonth, -6),
       to: lastDayOfMonth(addMonths(thisMonth, -1)),
     }),
     getAtlasViewForGroup(groupId, undefined, today),
   ]);
-
-  const kept =
-    summary && summary.count > 0
-      ? {
-          moneyIn: summary.moneyIn,
-          moneyOut: summary.moneyOut,
-          kept: Math.round((summary.moneyIn - summary.moneyOut) * 100) / 100,
-          from: addMonths(months[0], 1),
-          to: months[last],
-        }
-      : null;
 
   // Months before the first transaction would drag the average down, so skip them.
   const firstActive = outMonths.findIndex((m) => m.moneyOut > 0);
@@ -468,7 +490,7 @@ export async function getNetWorthExtrasForGroup(
     last >= 0
       ? dash.accounts.filter(pick).reduce((s, a) => s + (dash.balances[a.id]?.[last] ?? 0), 0)
       : 0;
-  const cash = latestBalance((a) => a.includeInBankSaved);
+  const cash = latestBalance((a) => CASH_KINDS.includes(a.kind));
   const runway =
     last >= 0 && cash > 0
       ? {
@@ -480,5 +502,5 @@ export async function getNetWorthExtrasForGroup(
         }
       : null;
 
-  return { kept, runway };
+  return { runway };
 }

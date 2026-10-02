@@ -1,7 +1,7 @@
 // The monthly savings goal is effective-dated segments (weight_plans pattern):
-// startMonth..endMonth (null = still active). One goal feeds both the budget
-// (ATLAS sets it aside before discretionary) and Net Worth (the bank-saved
-// line), so both read it through this one rule.
+// startMonth..endMonth (null = still active). One goal feeds ATLAS (its
+// take-home part comes off before discretionary) and the budget's month
+// report, so both read it through this one rule.
 
 export type GoalSegment = { monthlyGoal: string; startMonth: string; endMonth: string | null };
 

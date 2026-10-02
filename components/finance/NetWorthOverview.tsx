@@ -29,7 +29,7 @@ import {
   typeOfKind,
   type NetWorthRange,
 } from "@/lib/finance/net-worth";
-import type { AccountContributions } from "@/lib/queries/finance-networth";
+import type { AccountContributions, AccountFlows } from "@/lib/queries/finance-networth";
 import Money from "./Money";
 import AccountDetail, { type DetailAccount } from "./AccountDetail";
 
@@ -53,8 +53,7 @@ type Slice = {
   accountId?: number;
 };
 
-// The Net Worth overview: how it grew (or how bank saved tracks its goal),
-// then where it lives at one month as a donut whose list doubles as the
+// The Net Worth overview: how it grew, then where it lives at one month as a donut whose list doubles as the
 // legend. Tapping a month on the chart moves the donut to that month; tapping
 // an account opens its detail sheet.
 export default function NetWorthOverview({
@@ -64,9 +63,8 @@ export default function NetWorthOverview({
   accounts,
   balances,
   totals,
-  bank,
-  kept,
   contributions,
+  flows,
 }: {
   range: NetWorthRange;
   months: string[];
@@ -74,20 +72,13 @@ export default function NetWorthOverview({
   accounts: DetailAccount[];
   balances: Record<number, (number | null)[]>;
   totals: number[];
-  bank: {
-    names: string[];
-    cumulative: (number | null)[];
-    goal: (number | null)[];
-    monthlyGoal: number | null;
-  };
-  kept: { kept: number; from: string; to: string } | null;
   contributions: Record<number, AccountContributions>;
+  flows: Record<number, AccountFlows>;
 }) {
   const mounted = useMounted();
   const theme = useTheme();
   const last = months.length - 1;
   const [sel, setSel] = React.useState(last);
-  const [view, setView] = React.useState<"total" | "bank">("total");
   const [group, setGroup] = React.useState<"accounts" | "types">("accounts");
   const [hover, setHover] = React.useState<number | null>(null);
   const [openId, setOpenId] = React.useState<number | null>(null);
@@ -160,34 +151,13 @@ export default function NetWorthOverview({
   const muted = theme.vars?.palette.text.secondary ?? theme.palette.text.secondary;
   const fromPay = Object.values(contributions).reduce((s, c) => s + c.cumulative[last], 0);
   const payNames = accounts.filter((a) => contributions[a.id]).map((a) => a.name);
-  const goalLine = bank.goal.map((g, i) => (i === 0 && bank.goal.some((v) => v != null) ? 0 : g));
-  const bankLine = bank.cumulative.map((v, i) => (i === 0 ? 0 : v));
 
   return (
     <>
       <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2.5 }, mb: 2 }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ flexWrap: "wrap", gap: 1 }}>
-          <Typography variant="h6">{view === "total" ? "Growth" : "Bank saved vs goal"}</Typography>
-          {bank.names.length ? (
-            <ToggleButtonGroup
-              size="small"
-              exclusive
-              value={view}
-              onChange={(_, v: "total" | "bank" | null) => v && setView(v)}
-            >
-              <ToggleButton value="total" sx={{ px: 1.5, py: 0.4 }}>
-                Total
-              </ToggleButton>
-              <ToggleButton value="bank" sx={{ px: 1.5, py: 0.4 }}>
-                Bank saved
-              </ToggleButton>
-            </ToggleButtonGroup>
-          ) : null}
-        </Stack>
+        <Typography variant="h6">Growth</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          {view === "total"
-            ? "Tap a month to see where it was."
-            : `${bank.names.join(" + ")}${bank.monthlyGoal ? ` against ${formatMoney(bank.monthlyGoal)}/mo` : ""}`}
+          Tap a month to see where it was.
         </Typography>
 
         <Box sx={{ minHeight: 240 }}>
@@ -195,50 +165,20 @@ export default function NetWorthOverview({
             <LineChart
               height={240}
               xAxis={[{ data: x, scaleType: "time", valueFormatter: tickFormat }]}
-              yAxis={[
+              yAxis={[{ min: 0, valueFormatter: (v: number) => formatMoneyCompact(v), width: 56 }]}
+              series={[
                 {
-                  min: view === "total" ? 0 : undefined,
-                  valueFormatter: (v: number) => formatMoneyCompact(v),
-                  width: 56,
+                  id: "total",
+                  label: "Net worth",
+                  data: totals,
+                  color: primary,
+                  area: true,
+                  showMark: false,
+                  curve: "monotoneX",
+                  valueFormatter: (v) => formatMoney(v ?? 0),
                 },
               ]}
-              series={
-                view === "total"
-                  ? [
-                      {
-                        id: "total",
-                        label: "Net worth",
-                        data: totals,
-                        color: primary,
-                        area: true,
-                        showMark: false,
-                        curve: "monotoneX",
-                        valueFormatter: (v) => formatMoney(v ?? 0),
-                      },
-                    ]
-                  : [
-                      {
-                        id: "bank",
-                        label: "Bank saved",
-                        data: bankLine,
-                        color: "var(--chart-3)",
-                        showMark: false,
-                        connectNulls: true,
-                        curve: "monotoneX",
-                        valueFormatter: (v) => (v == null ? "—" : formatMoneySigned(v)),
-                      },
-                      {
-                        id: "goal",
-                        label: "Goal",
-                        data: goalLine,
-                        color: muted,
-                        showMark: false,
-                        connectNulls: true,
-                        valueFormatter: (v) => (v == null ? "—" : formatMoney(v)),
-                      },
-                    ]
-              }
-              hideLegend={view === "total"}
+              hideLegend
               onAxisClick={(_, d) => {
                 if (d) setSel(d.dataIndex);
               }}
@@ -246,7 +186,6 @@ export default function NetWorthOverview({
               sx={{
                 cursor: "pointer",
                 [`& .${lineClasses.area}`]: { opacity: 0.18 },
-                [`& .${lineClasses.line}[data-series="goal"]`]: { strokeDasharray: "6 4" },
               }}
             >
               {at !== last ? (
@@ -256,7 +195,7 @@ export default function NetWorthOverview({
           ) : null}
         </Box>
 
-        {view === "total" && fromPay > 0 && last > 0 ? (
+        {fromPay > 0 && last > 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
             Of the {formatMoneyDelta(totals[last] - totals[0])} {rangePhrase},{" "}
             <strong>{formatMoneyDelta(fromPay)}</strong> went straight from paychecks into{" "}
@@ -264,18 +203,6 @@ export default function NetWorthOverview({
           </Typography>
         ) : null}
 
-        {view === "bank" && kept && bank.cumulative[last] != null ? (
-          <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 1, bgcolor: "action.hover" }}>
-            <Typography variant="body2">
-              The budget kept <strong>{formatMoneySigned(kept.kept)}</strong> from {formatMonth(kept.from)} to{" "}
-              {formatMonth(kept.to)}. Bank saved changed <strong>{formatMoneySigned(bank.cumulative[last])}</strong>.
-            </Typography>
-            <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
-              The difference is money that moved without a budget transaction: transfers into
-              investments, Venmo or cash spending, and interest.
-            </Typography>
-          </Box>
-        ) : null}
       </Paper>
 
       <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2.5 }, mb: 2 }}>
@@ -438,6 +365,7 @@ export default function NetWorthOverview({
           totals={totals}
           rangePhrase={rangePhrase}
           contributions={contributions[open.id]}
+          flows={flows[open.id]}
           onClose={() => setOpenId(null)}
         />
       ) : null}

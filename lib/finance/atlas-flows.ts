@@ -98,7 +98,7 @@ export function buildAtlasFlows(input: AtlasFlowInput): {
   }
 
   if (input.savingsGoal > 0) {
-    nodes.push({ id: "savings", label: "Savings goal", color: SAVINGS_COLOR });
+    nodes.push({ id: "savings", label: "Savings (take-home)", color: SAVINGS_COLOR });
     links.push({ source: net.id, target: "savings", value: input.savingsGoal });
   }
 

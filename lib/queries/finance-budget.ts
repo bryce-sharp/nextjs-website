@@ -49,7 +49,7 @@ export type BudgetView = {
    *  (income 0 − bills = a misleading negative), so the page shows a note. */
   hasIncome: boolean;
   /** The ATLAS plan behind the budget, in cents (the month report's "planned"). */
-  plan: { monthlyNetC: number; billsC: number; savingsGoalC: number };
+  plan: { monthlyNetC: number; billsC: number; savingsGoalC: number; paycheckSavingsC: number };
 };
 
 /**
@@ -195,6 +195,7 @@ export async function getBudgetMonthForGroup(
       monthlyNetC: cents(atlas.totals.monthlyNet),
       billsC: cents(atlas.totals.fixedMonthly),
       savingsGoalC: cents(atlas.totals.savingsGoal),
+      paycheckSavingsC: cents(atlas.totals.savingsFromPaycheck),
     },
   };
 }
@@ -213,6 +214,7 @@ function monthReportInput(view: BudgetView, lanes: CategoryFlow[]): MonthReportI
       discretionary: dl(disc.budgetC),
       savingsGoal: dl(view.plan.savingsGoalC),
       estimateAdjustment: dl(disc.estimateAdjustmentC),
+      paycheckSavings: dl(view.plan.paycheckSavingsC),
     },
     actual: {
       income: inn("income"),

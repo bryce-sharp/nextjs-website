@@ -13,7 +13,6 @@ import {
   getNetWorthDashboardForGroup,
   getNetWorthExtrasForGroup,
 } from "@/lib/queries/finance-networth";
-import { formatMoney } from "@/lib/format";
 import NetWorthActions from "@/components/finance/NetWorthActions";
 import NetWorthTiles from "@/components/finance/NetWorthTiles";
 import NetWorthOverview from "@/components/finance/NetWorthOverview";
@@ -27,8 +26,9 @@ export const metadata = { title: "Net Worth" };
 const RANGES: NetWorthRange[] = ["year", "12mo", "all"];
 
 // The Net Worth tab (F1 of the finance app): monthly per-account balances →
-// growth, where the money lives, bank saved vs its goal, and what the pace
-// and the bank cushion mean going forward. Household data: everyone in the
+// growth, where the money lives, and what the pace and the cash cushion mean
+// going forward. It only tracks money up and down; the savings goal lives
+// with the budget. Household data: everyone in the
 // group sees it; edit mode gates the writes.
 export default async function NetWorthPage({
   searchParams,
@@ -60,7 +60,7 @@ export default async function NetWorthPage({
     id: a.id,
     name: a.name,
     kind: a.kind,
-    includeInBankSaved: a.includeInBankSaved,
+    transferPatterns: a.transferPatterns ?? [],
     trackBalance: a.trackBalance,
     carriesDiscretion: a.carriesDiscretion,
     archived: a.archivedAt !== null,
@@ -70,7 +70,6 @@ export default async function NetWorthPage({
     id: a.id,
     name: a.name,
     kind: a.kind,
-    includeInBankSaved: a.includeInBankSaved,
     archived: a.archivedAt !== null,
   }));
 
@@ -80,13 +79,6 @@ export default async function NetWorthPage({
   const minYear = Math.min(cy - 5, dash.firstLogged ? Number(dash.firstLogged.slice(0, 4)) : cy);
   const yearOptions: number[] = [];
   for (let y = cy; y >= minYear; y--) yearOptions.push(y);
-
-  const activeGoal = dash.activeGoal
-    ? {
-        monthlyGoal: Number(dash.activeGoal.monthlyGoal),
-        startMonth: dash.activeGoal.startMonth,
-      }
-    : null;
 
   const last = dash.months.length - 1;
   const hasData = last >= 0 && dash.stats !== null;
@@ -105,9 +97,7 @@ export default async function NetWorthPage({
             Net Worth
           </Typography>
           <Typography variant="h6" component="p" color="text.secondary" fontWeight={400}>
-            {activeGoal
-              ? `Saving goal ${formatMoney(activeGoal.monthlyGoal)}/mo`
-              : "Monthly balances & growth"}
+            Balances across your accounts
           </Typography>
         </Stack>
         {editor ? (
@@ -115,10 +105,8 @@ export default async function NetWorthPage({
             snapshotAccounts={snapshotAccounts}
             allAccounts={managedAccounts}
             logMonth={logMonth}
-            goalMonth={currentMonth}
             balancesByMonth={dash.balancesByMonth}
             yearOptions={yearOptions}
-            activeGoal={activeGoal}
           />
         ) : null}
       </Stack>
@@ -157,8 +145,6 @@ export default async function NetWorthPage({
             stats={dash.stats}
             startMonth={dash.months[0]}
             rangeLabel={rangeLabel(range)}
-            activeGoal={activeGoal}
-            editor={editor}
           />
 
           <NetWorthOverview
@@ -168,14 +154,8 @@ export default async function NetWorthPage({
             accounts={windowAccounts}
             balances={dash.balances}
             totals={dash.totals}
-            bank={{
-              names: dash.accounts.filter((a) => a.includeInBankSaved).map((a) => a.name),
-              cumulative: dash.bankSaved.cumulative,
-              goal: dash.bankSaved.goal,
-              monthlyGoal: activeGoal?.monthlyGoal ?? null,
-            }}
-            kept={extras.kept}
             contributions={dash.contributions}
+            flows={dash.flows}
           />
 
           <NetWorthInsights

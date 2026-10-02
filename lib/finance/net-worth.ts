@@ -37,9 +37,10 @@ const TYPE_OF_KIND: Record<string, string> = {
   hsa: "HSA",
   crypto: "Crypto",
   credit_card: "Credit",
+  wallet: "Wallet",
   other: "Other",
 };
-export const TYPE_ORDER = ["Cash", "Brokerage", "Retirement", "HSA", "Crypto", "Credit", "Other"];
+export const TYPE_ORDER = ["Cash", "Brokerage", "Retirement", "HSA", "Crypto", "Wallet", "Credit", "Other"];
 export const typeOfKind = (kind: string) => TYPE_OF_KIND[kind] ?? "Other";
 
 export const KIND_LABELS: Record<string, string> = {
@@ -50,8 +51,17 @@ export const KIND_LABELS: Record<string, string> = {
   crypto: "Crypto",
   hsa: "HSA",
   credit_card: "Credit card",
+  wallet: "Spending wallet",
   other: "Other",
 };
+
+/** Liquid money: what Runway and the Cash tile count. */
+export const CASH_KINDS = ["checking", "savings"];
+/** Accounts whose growth splits into money put in vs market. */
+export const INVESTMENT_KINDS = ["brokerage", "retirement", "hsa", "crypto"];
+/** Where savings can live: every account you own except spending money and debt.
+ *  Moving money between two of these is a transfer; into a wallet, it is spent. */
+export const isSavingsKind = (kind: string) => kind !== "wallet" && kind !== "credit_card";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 

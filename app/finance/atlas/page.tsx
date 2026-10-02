@@ -224,6 +224,8 @@ export default async function AtlasPage({
 
       <SavingsGoalCard
         goal={view.totals.savingsGoal}
+        paycheckSavings={view.totals.savingsFromPaycheck}
+        paycheckNames={view.totals.paycheckSavingsNames}
         since={view.totals.savingsGoalSince}
         editable={editable}
         defaultMonth={defaultMonth}

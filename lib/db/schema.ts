@@ -565,7 +565,7 @@ export const weightPlans = pgTable(
 // FINANCE — Net worth (F1 of the finance roadmap; ATLAS + budget follow).
 // Accounts are the group's money places; snapshots are the first-of-the-month
 // ritual (log every balance once a month). Everything derived — totals, MoM,
-// cumulative growth, the bank-saved-vs-goal lines — is COMPUTED in
+// cumulative growth, cash, paycheck contributions — is COMPUTED in
 // lib/queries/finance-networth.ts, never stored (same spirit as MPG/weight).
 // ─────────────────────────────────────────────────────────────────────────────
 export const financialAccounts = pgTable(
@@ -577,11 +577,16 @@ export const financialAccounts = pgTable(
       .references(() => groups.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 120 }).notNull(),
     // Display grouping + chart stacking:
-    // checking | savings | brokerage | retirement | crypto | hsa | credit_card | other
+    // checking | savings | brokerage | retirement | crypto | hsa | credit_card |
+    // wallet | other. A wallet (Venmo, cash) is spending money: moving money
+    // into it counts as spent, never as a transfer.
     kind: varchar("kind", { length: 20 }).notNull().default("other"),
-    // The "Bank saved" metric subset (e.g. the two Ally accounts) — an explicit
-    // flag, not inferred from kind (Venmo+ is checking-like but excluded).
+    // Retired: savings are now every account you own (see lib/finance/net-worth),
+    // so nothing reads this flag any more.
     includeInBankSaved: boolean("include_in_bank_saved").notNull().default(false),
+    // Case-insensitive words that mark a transaction as money moving INTO this
+    // account ("SCHWAB"), so an ingested row becomes a transfer automatically.
+    transferPatterns: jsonb("transfer_patterns").$type<string[]>().notNull().default([]),
     // false = not part of the monthly balance ritual (e.g. a credit card row
     // that exists only as a payment source for recurring expenses, F2+).
     trackBalance: boolean("track_balance").notNull().default(true),
@@ -617,9 +622,10 @@ export const accountSnapshots = pgTable(
   (t) => [uniqueIndex("uniq_snapshot_account_month").on(t.accountId, t.month)],
 );
 
-// Effective-dated "bank saved" goal segments (weight_plans pattern): the goal
-// line accumulates monthlyGoal per month from startMonth; endMonth null = the
-// active segment, so changing the goal never rewrites the old goal line.
+// Effective-dated savings goal segments (weight_plans pattern). monthlyGoal is
+// the TAKE-HOME part ATLAS sets aside before discretionary; the whole goal adds
+// what paychecks already save (401k, HSA). endMonth null = the active segment,
+// so changing the goal never rewrites past months.
 export const savingsGoals = pgTable("savings_goals", {
   id: serial("id").primaryKey(),
   groupId: integer("group_id")
@@ -792,8 +798,9 @@ export const transactions = pgTable(
     originalAmount: numeric("original_amount", { precision: 10, scale: 2 }).notNull(),
     // Engine semantics (fixed enum — labels live on ATLAS categories instead):
     // discretionary | fixed | amortized | savings | reimbursement | fund |
-    // income | ignored. income never touches spend math; ignored is the trash
-    // that still keeps its audit trail.
+    // income | transfer | ignored. income never touches spend math; transfer
+    // moves money between your own accounts; ignored is the trash that still
+    // keeps its audit trail.
     category: varchar("category", { length: 20 }).notNull().default("discretionary"),
     // fixed/amortized txns match a recurring bill → estimate-vs-actual deltas
     // and sinking-fund consumption.
@@ -802,6 +809,12 @@ export const transactions = pgTable(
       { onDelete: "set null" },
     ),
     fundId: integer("fund_id").references(() => funds.id, { onDelete: "set null" }),
+    // A transfer's other side: money moved from accountId INTO this account.
+    // Transfers are between your own accounts, so they are never income or
+    // spending and never tagged.
+    transferAccountId: integer("transfer_account_id").references(() => financialAccounts.id, {
+      onDelete: "set null",
+    }),
     source: varchar("source", { length: 20 }).notNull(), // sms | manual
     rawText: text("raw_text"), // full SMS body kept for audit + re-parse
     rawHash: varchar("raw_hash", { length: 64 }), // sha256; short-window dedupe, NOT unique

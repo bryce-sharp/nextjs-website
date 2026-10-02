@@ -49,13 +49,16 @@ export type TxnRowData = {
   spendCategory: string | null;
   fundId: number | null;
   recurringExpenseId: number | null;
+  accountId: number | null;
+  transferAccountId: number | null; // a transfer's "into" account
   needsReview: boolean;
   note: string | null;
   source: string;
 };
 
-// `flow` groups the pickers: money out vs money in (a reimbursement pays you back).
-export const CATEGORY_OPTIONS: { value: string; label: string; flow: "out" | "in" }[] = [
+// `flow` groups the pickers: money out vs money in (a reimbursement pays you
+// back) vs money moving between your own accounts.
+export const CATEGORY_OPTIONS: { value: string; label: string; flow: "out" | "in" | "move" }[] = [
   { value: "discretionary", label: "Discretionary", flow: "out" },
   { value: "fixed", label: "Fixed bill", flow: "out" },
   { value: "amortized", label: "Amortized", flow: "out" },
@@ -65,7 +68,9 @@ export const CATEGORY_OPTIONS: { value: string; label: string; flow: "out" | "in
   { value: "fund", label: "Fund", flow: "out" },
   { value: "income", label: "Income", flow: "in" },
   { value: "reimbursement", label: "Reimbursement", flow: "in" },
+  { value: "transfer", label: "Transfer", flow: "move" },
 ];
+export const FLOW_GROUP_LABELS = { out: "Money out", in: "Money in", move: "Between your accounts" } as const;
 // "ignored" still renders if any legacy row has it, but it's no longer offered.
 const CATEGORY_LABEL: Record<string, string> = {
   ...Object.fromEntries(CATEGORY_OPTIONS.map((c) => [c.value, c.label])),
@@ -74,7 +79,7 @@ const CATEGORY_LABEL: Record<string, string> = {
 
 // Money IN (raises what you can spend) vs OUT vs neutral transfers.
 const INFLOW = new Set(["income", "reimbursement"]);
-const NEUTRAL = new Set(["ignored"]);
+const NEUTRAL = new Set(["ignored", "transfer"]);
 // Direction of the row by MEANING, not raw sign: money into your pocket OR into
 // a fund reads green "+", money out reads red — magnitude always positive, so a
 // fund deposit (stored negative) never shows as a baffling red "-$100".
@@ -104,12 +109,15 @@ function chipColor(category: string): "primary" | "success" | "warning" | "defau
 export default function TransactionRow({
   txn,
   funds,
+  accounts = [],
   onMenu,
   onRowClick,
   onEditCategory,
 }: {
   txn: TxnRowData;
   funds: TxnFund[];
+  /** Names for a transfer's "from → into" line. */
+  accounts?: { id: number; name: string }[];
   onMenu?: (txn: TxnRowData, anchor: HTMLElement) => void;
   // Present ⇒ tapping anywhere on the row opens its actions (phones).
   onRowClick?: (txn: TxnRowData, anchor: HTMLElement) => void;
@@ -117,7 +125,13 @@ export default function TransactionRow({
   onEditCategory?: (txn: TxnRowData, anchor: HTMLElement) => void;
 }) {
   const adjusted = txn.amount !== txn.originalAmount;
-  const fundName = txn.fundId ? funds.find((f) => f.id === txn.fundId)?.name : null;
+  const accountName = (id: number | null) => (id == null ? null : accounts.find((a) => a.id === id)?.name ?? null);
+  const fundName =
+    txn.category === "transfer"
+      ? `${accountName(txn.accountId) ?? "?"} → ${accountName(txn.transferAccountId) ?? "?"}`
+      : txn.fundId
+        ? funds.find((f) => f.id === txn.fundId)?.name
+        : null;
   const dir = direction(txn.category, txn.amount);
   // Every counted row is taggable — spending tags on money out, income tags on
   // money in. Excluded rows are never counted, so never tagged.
@@ -198,7 +212,7 @@ export default function TransactionRow({
                   textOverflow: "ellipsis",
                 }}
               >
-                {fundName ? `→ ${fundName}` : ""}
+                {fundName ? (txn.category === "transfer" ? fundName : `→ ${fundName}`) : ""}
                 {fundName && txn.note ? " · " : ""}
                 {txn.note ?? ""}
               </Box>

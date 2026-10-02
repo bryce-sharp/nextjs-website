@@ -17,6 +17,7 @@ import { profileInGroup } from "./scope";
 import { getGroupTimezone } from "@/lib/queries/group";
 import { lastDayOfMonth, todayISO } from "@/lib/finance/parse";
 import { goalForMonth } from "@/lib/finance/savings-goal";
+import { isSavingsKind } from "@/lib/finance/net-worth";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ATLAS — reads + ALL derived income/spend math (nothing stored; the effective-
@@ -114,9 +115,17 @@ export type AtlasView = {
     byCategory: { category: string; monthly: number }[];
     byNecessity: { necessity: string; monthly: number }[];
     byAccount: { name: string; kind: string | null; monthly: number }[];
-    /** The monthly savings goal in effect (0 = none) — set aside before
-     *  discretionary; it stays in the bank, so it never posts a transaction. */
+    /** The TAKE-HOME part of the savings goal (0 = none) — set aside before
+     *  discretionary. It is what the goal row stores; it never posts a transaction. */
     savingsGoal: number;
+    /** What paychecks already save each month: deductions that land in one of
+     *  your accounts (401k, HSA), employer match included. */
+    savingsFromPaycheck: number;
+    /** The deductions behind savingsFromPaycheck, e.g. ["401K", "HSA"]. */
+    paycheckSavingsNames: string[];
+    /** The whole goal: take-home part + paycheck savings. Savings means money
+     *  in any account you own, so a 401k contribution counts. */
+    savingsGoalTotal: number;
     /** When that goal segment started (YYYY-MM-01), or null. */
     savingsGoalSince: string | null;
     discretionLeft: number; // monthlyNet − fixedMonthly − savingsGoal
@@ -212,6 +221,8 @@ export async function getAtlasViewForGroup(
 
   // ── Per-person income ────────────────────────────────────────────────────────
   const people: AtlasProfileView[] = [];
+  let paycheckSavingsC = 0;
+  const paycheckSavingsNames = new Set<string>();
   for (const p of groupProfiles) {
     // Latest-starting effective plan wins (overlaps happen mid-transition).
     const plan = effectiveAt(
@@ -228,6 +239,15 @@ export async function getAtlasViewForGroup(
 
     const grossC = cents(plan.grossPerPaycheck);
     const perCheckC = (d: IncomeDeduction): number => deductionPerCheckC(d, grossC);
+
+    // Deductions that land in an account you own are savings already.
+    for (const d of deductions) {
+      const acct = d.depositAccountId != null ? accountById.get(d.depositAccountId) : null;
+      if (acct && isSavingsKind(acct.kind)) {
+        paycheckSavingsC += (perCheckC(d) * ppy) / 12;
+        paycheckSavingsNames.add(d.name);
+      }
+    }
 
     const payrollC = deductions
       .filter((d) => d.source === "payroll")
@@ -405,6 +425,9 @@ export async function getAtlasViewForGroup(
       })),
       byAccount: byAccountRaw,
       savingsGoal: dollars(savingsGoalC),
+      savingsFromPaycheck: dollars(paycheckSavingsC),
+      paycheckSavingsNames: [...paycheckSavingsNames],
+      savingsGoalTotal: goal ? dollars(savingsGoalC + Math.round(paycheckSavingsC)) : 0,
       savingsGoalSince: goal?.startMonth ?? null,
       discretionLeft: dollars(discretionC),
       expectedOutflows,

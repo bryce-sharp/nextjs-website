@@ -35,9 +35,12 @@ function PhonePlan({ children }: { children: React.ReactNode }) {
 }
 
 // The month's budget report: planned vs actual per line, the differences
-// summing to kept vs the savings goal, and a one-line "why".
+// summing to kept vs the savings goal, and a one-line "why". When paychecks
+// save too (401k, HSA), they add on top and the bottom row is the whole goal.
 export default function MonthReport({ report, inProgress }: { report: Report; inProgress?: boolean }) {
-  const { kept } = report;
+  const { kept, saved } = report;
+  const withPaycheck = saved.paycheck > 0 && kept.goal > 0;
+  const gap = (diff: number) => `${formatMoney(Math.abs(diff))} ${diff < 0 ? "short" : "ahead"}`;
   return (
     <Box>
       <Box sx={{ overflowX: "auto" }}>
@@ -78,8 +81,10 @@ export default function MonthReport({ report, inProgress }: { report: Report; in
                 </TableCell>
               </TableRow>
             ))}
-            <TableRow sx={{ "& td": { borderBottom: 0, fontWeight: 700 } }}>
-              <TableCell>{kept.goal > 0 ? "Kept vs savings goal" : "Kept"}</TableCell>
+            <TableRow sx={withPaycheck ? undefined : { "& td": { borderBottom: 0, fontWeight: 700 } }}>
+              <TableCell>
+                {withPaycheck ? "Kept from take-home" : kept.goal > 0 ? "Kept vs savings goal" : "Kept"}
+              </TableCell>
               <TableCell align="right" sx={{ ...num, ...plannedCol }}>
                 {kept.goal > 0 ? formatMoney(kept.goal) : "—"}
               </TableCell>
@@ -88,11 +93,43 @@ export default function MonthReport({ report, inProgress }: { report: Report; in
                 {kept.goal > 0 ? <PhonePlan>goal {formatMoney(kept.goal)}</PhonePlan> : null}
               </TableCell>
               <TableCell align="right" sx={{ ...num, color: kept.diff < -0.005 ? "warning.main" : undefined }}>
-                {kept.goal > 0
-                  ? `${formatMoney(Math.abs(kept.diff))} ${kept.diff < 0 ? "short" : "ahead"}`
-                  : ""}
+                {kept.goal > 0 ? gap(kept.diff) : ""}
               </TableCell>
             </TableRow>
+            {withPaycheck ? (
+              <>
+                <TableRow>
+                  <TableCell>
+                    <Typography variant="body2">From your paycheck</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      401k, HSA, and other deductions into your accounts
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right" sx={{ ...num, ...plannedCol }}>
+                    {formatMoney(saved.paycheck)}
+                  </TableCell>
+                  <TableCell align="right" sx={num}>
+                    {formatMoney(saved.paycheck)}
+                  </TableCell>
+                  <TableCell align="right" sx={{ ...num, color: "text.secondary" }}>
+                    on plan
+                  </TableCell>
+                </TableRow>
+                <TableRow sx={{ "& td": { borderBottom: 0, fontWeight: 700 } }}>
+                  <TableCell>Saved vs savings goal</TableCell>
+                  <TableCell align="right" sx={{ ...num, ...plannedCol }}>
+                    {formatMoney(saved.goal)}
+                  </TableCell>
+                  <TableCell align="right" sx={num}>
+                    {formatMoney(saved.actual)}
+                    <PhonePlan>goal {formatMoney(saved.goal)}</PhonePlan>
+                  </TableCell>
+                  <TableCell align="right" sx={{ ...num, color: kept.diff < -0.005 ? "warning.main" : undefined }}>
+                    {gap(kept.diff)}
+                  </TableCell>
+                </TableRow>
+              </>
+            ) : null}
           </TableBody>
         </Table>
       </Box>
