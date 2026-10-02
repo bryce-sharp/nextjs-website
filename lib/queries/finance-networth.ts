@@ -1,15 +1,18 @@
 import "server-only";
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   financialAccounts,
   accountSnapshots,
   savingsGoals,
+  compensationPlans,
+  incomeDeductions,
   type FinancialAccount,
   type SavingsGoal,
 } from "@/lib/db/schema";
 import { requireGroupId } from "@/lib/session";
 import { getGroupTimezone } from "@/lib/queries/group";
+import { profileInGroup } from "@/lib/queries/scope";
 import { goalForMonth } from "@/lib/finance/savings-goal";
 import { lastDayOfMonth, todayISO } from "@/lib/finance/parse";
 import {
@@ -20,7 +23,12 @@ import {
   type Pace,
 } from "@/lib/finance/net-worth";
 import { cashFlowByMonth, summarizeCashFlow } from "@/lib/queries/finance-cashflow";
-import { getAtlasViewForGroup } from "@/lib/queries/finance-atlas";
+import {
+  PAYCHECKS_PER_YEAR,
+  deductionPerCheckC,
+  effectiveAt,
+  getAtlasViewForGroup,
+} from "@/lib/queries/finance-atlas";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NET WORTH — reads + ALL derived metrics (nothing here is stored; same spirit
@@ -58,6 +66,17 @@ export type NetWorthStats = {
   bankVsGoal: number | null; // cumulative − goalToDate (ahead/behind)
 };
 
+/** Paycheck money flowing into one account (ATLAS deductions linked to it). */
+export type AccountContributions = {
+  /** Aligned to `months`: contributed since the starting point (0 at index 0). */
+  cumulative: number[];
+  /** Per month at the newest row, split by who pays it. */
+  you: number;
+  employer: number;
+  /** The deductions feeding it, e.g. ["401K"]. */
+  names: string[];
+};
+
 export type NetWorthDashboard = {
   range: NetWorthRange;
   /** Non-archived tracked accounts, plus any archived/untracked ones that
@@ -86,6 +105,8 @@ export type NetWorthDashboard = {
   /** Average monthly change over the last 6 and 12 months of ALL history. */
   pace: { short: Pace | null; long: Pace | null };
   stats: NetWorthStats | null;
+  /** By account id, only for accounts some deduction lands in. */
+  contributions: Record<number, AccountContributions>;
   activeGoal: SavingsGoal | null;
   /** Oldest month ever logged (YYYY-MM-01), for the log dialog's years. */
   firstLogged: string | null;
@@ -139,7 +160,7 @@ export async function getNetWorthDashboardForGroup(
     .orderBy(...accountOrder);
 
   const accountIds = allAccounts.map((a) => a.id);
-  const [snaps, goals] = await Promise.all([
+  const [snaps, goals, plans, linked] = await Promise.all([
     accountIds.length
       ? db
           .select()
@@ -152,6 +173,21 @@ export async function getNetWorthDashboardForGroup(
       .from(savingsGoals)
       .where(eq(savingsGoals.groupId, groupId))
       .orderBy(asc(savingsGoals.startMonth), asc(savingsGoals.id)),
+    db
+      .select()
+      .from(compensationPlans)
+      .where(profileInGroup(compensationPlans.profileId, groupId))
+      .orderBy(asc(compensationPlans.startDate), asc(compensationPlans.id)),
+    db
+      .select()
+      .from(incomeDeductions)
+      .where(
+        and(
+          profileInGroup(incomeDeductions.profileId, groupId),
+          isNotNull(incomeDeductions.depositAccountId),
+        ),
+      )
+      .orderBy(asc(incomeDeductions.startDate), asc(incomeDeductions.id)),
   ]);
   const activeGoal = goals.findLast((g) => g.endMonth === null) ?? null;
 
@@ -235,6 +271,8 @@ export async function getNetWorthDashboardForGroup(
     }
   }
 
+  const contributions = contributionsFor(months, accounts, plans, linked);
+
   const last = months.length - 1;
   const stats: NetWorthStats | null =
     last >= 0
@@ -276,9 +314,72 @@ export async function getNetWorthDashboardForGroup(
     balancesByMonth,
     pace,
     stats,
+    contributions,
     activeGoal,
     firstLogged: allMonths[0] ?? null,
   };
+}
+
+/**
+ * Paycheck contributions per account across the window, with ATLAS's own math:
+ * each calendar month reads the pay plan and deductions in effect on its last
+ * day, at paychecks-per-year ÷ 12 per month.
+ */
+function contributionsFor(
+  months: string[],
+  accounts: FinancialAccount[],
+  plans: (typeof compensationPlans.$inferSelect)[],
+  linked: (typeof incomeDeductions.$inferSelect)[],
+): Record<number, AccountContributions> {
+  const shown = new Set(accounts.map((a) => a.id));
+  const rows = linked.filter((d) => d.depositAccountId != null && shown.has(d.depositAccountId));
+  if (!rows.length || months.length === 0) return {};
+  const people = [...new Set(rows.map((d) => d.profileId))];
+
+  // accountId → { you, employer } cents for one calendar month.
+  const monthOf = (month: string) => {
+    const asOf = lastDayOfMonth(month);
+    const out = new Map<number, { you: number; employer: number }>();
+    for (const profileId of people) {
+      const plan = effectiveAt(plans.filter((p) => p.profileId === profileId), asOf).at(-1);
+      if (!plan) continue;
+      const ppy = PAYCHECKS_PER_YEAR[plan.payFrequency] ?? 24;
+      const grossC = Math.round(Number(plan.grossPerPaycheck) * 100);
+      for (const d of effectiveAt(rows.filter((r) => r.profileId === profileId), asOf)) {
+        const c = (deductionPerCheckC(d, grossC) * ppy) / 12;
+        const e = out.get(d.depositAccountId!) ?? { you: 0, employer: 0 };
+        if (d.source === "employer") e.employer += c;
+        else e.you += c;
+        out.set(d.depositAccountId!, e);
+      }
+    }
+    return out;
+  };
+
+  const ids = [...new Set(rows.map((d) => d.depositAccountId!))];
+  const running = new Map(ids.map((id) => [id, 0]));
+  const cumulative = new Map(ids.map((id) => [id, months.map(() => 0)]));
+  let i = 1;
+  for (let m = addMonths(months[0], 1); m <= months[months.length - 1]; m = addMonths(m, 1)) {
+    for (const [id, e] of monthOf(m)) running.set(id, (running.get(id) ?? 0) + e.you + e.employer);
+    if (m === months[i]) {
+      for (const id of ids) cumulative.get(id)![i] = Math.round(running.get(id)!) / 100;
+      i++;
+    }
+  }
+
+  const latest = monthOf(months[months.length - 1]);
+  const out: Record<number, AccountContributions> = {};
+  for (const id of ids) {
+    const e = latest.get(id) ?? { you: 0, employer: 0 };
+    out[id] = {
+      cumulative: cumulative.get(id)!,
+      you: Math.round(e.you) / 100,
+      employer: Math.round(e.employer) / 100,
+      names: [...new Set(rows.filter((d) => d.depositAccountId === id).map((d) => d.name))],
+    };
+  }
+  return out;
 }
 
 export type NetWorthExtras = {

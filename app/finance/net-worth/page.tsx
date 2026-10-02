@@ -175,6 +175,7 @@ export default async function NetWorthPage({
               monthlyGoal: activeGoal?.monthlyGoal ?? null,
             }}
             kept={extras.kept}
+            contributions={dash.contributions}
           />
 
           <NetWorthInsights

@@ -15,6 +15,7 @@ import {
   formatMonth,
 } from "@/lib/format";
 import { KIND_LABELS, accountStats, changesOf } from "@/lib/finance/net-worth";
+import type { AccountContributions } from "@/lib/queries/finance-networth";
 
 const noopSubscribe = () => () => {};
 function useMounted() {
@@ -54,6 +55,8 @@ const short = (m: string) => formatMonth(m).slice(0, 3);
 
 // One account's story across the range: its balance line, how it moves per
 // month, its share of the total, and every logged balance (newest first).
+// When paycheck deductions land in it (401k, HSA), the growth splits into
+// what pay put in vs everything else, with a dashed "paycheck money only" line.
 export default function AccountDetail({
   account,
   color,
@@ -61,6 +64,7 @@ export default function AccountDetail({
   balances,
   totals,
   rangePhrase,
+  contributions,
   onClose,
 }: {
   account: DetailAccount;
@@ -69,6 +73,7 @@ export default function AccountDetail({
   balances: (number | null)[];
   totals: number[];
   rangePhrase: string; // "this year", "over 12 months", "since Dec 2025"
+  contributions?: AccountContributions;
   onClose: () => void;
 }) {
   const mounted = useMounted();
@@ -76,6 +81,18 @@ export default function AccountDetail({
   const changes = changesOf(months, balances);
   const x = months.map((m) => new Date(`${m.slice(0, 7)}-01T12:00:00`));
   const rows = months.map((_, i) => i).reverse();
+
+  // Paycheck money from the account's first logged balance on.
+  const firstIdx = balances.findIndex((v) => v != null);
+  const c = contributions && firstIdx >= 0 ? contributions : undefined;
+  const paid = c ? c.cumulative[months.length - 1] - c.cumulative[firstIdx] : null;
+  const rest = paid != null && s.change != null ? s.change - paid : null;
+  const paycheckLine = c
+    ? months.map((_, i) => (i >= firstIdx ? balances[firstIdx]! + c.cumulative[i] - c.cumulative[firstIdx] : null))
+    : null;
+  // With the dashed line, zoom in so the gap between the two lines reads.
+  const lows = [...balances, ...(paycheckLine ?? [])].filter((v): v is number => v != null);
+  const floor = paycheckLine && lows.length ? Math.max(0, Math.floor((Math.min(...lows) * 0.9) / 1000) * 1000) : undefined;
 
   const overline = [KIND_LABELS[account.kind] ?? account.kind, account.includeInBankSaved ? "Bank saved" : null, account.archived ? "Archived" : null]
     .filter(Boolean)
@@ -93,7 +110,7 @@ export default function AccountDetail({
         </Typography>
       ) : null}
 
-      <Box sx={{ height: 200, mt: 1.5, mx: -1 }}>
+      <Box sx={{ minHeight: 200, mt: 1.5, mx: -1 }}>
         {mounted ? (
           <LineChart
             height={200}
@@ -109,6 +126,18 @@ export default function AccountDetail({
                 curve: "monotoneX",
                 valueFormatter: (v) => (v == null ? "—" : formatMoney(v)),
               },
+              ...(paycheckLine
+                ? [
+                    {
+                      id: "paid",
+                      label: "Paycheck money only",
+                      data: paycheckLine,
+                      color: "var(--chart-other)",
+                      showMark: false,
+                      valueFormatter: (v: number | null) => (v == null ? "—" : formatMoney(v)),
+                    },
+                  ]
+                : []),
             ]}
             xAxis={[
               {
@@ -118,13 +147,34 @@ export default function AccountDetail({
                   d.toLocaleDateString("en-US", ctx.location === "tick" ? { month: "short" } : { month: "long", year: "numeric" }),
               },
             ]}
-            yAxis={[{ valueFormatter: (v: number) => formatMoneyCompact(v), width: 52 }]}
-            hideLegend
+            yAxis={[{ min: floor, valueFormatter: (v: number) => formatMoneyCompact(v), width: 52 }]}
+            hideLegend={!paycheckLine}
             margin={{ top: 8, right: 12, bottom: 4, left: 4 }}
-            sx={{ [`& .${lineClasses.area}`]: { opacity: 0.2 } }}
+            sx={{
+              [`& .${lineClasses.area}`]: { opacity: 0.2 },
+              [`& .${lineClasses.line}[data-series="paid"]`]: { strokeDasharray: "6 4" },
+            }}
           />
         ) : null}
       </Box>
+
+      {c && paid != null ? (
+        <>
+          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mt: 2 }}>
+            <Stat label="From paychecks" value={formatMoneyDelta(paid)} color={tone(paid)} />
+            <Stat
+              label="Everything else"
+              value={rest == null ? "—" : formatMoneyDelta(rest)}
+              color={tone(rest)}
+            />
+          </Box>
+          <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.75 }}>
+            {c.names.join(" and ")} adds {formatMoneyWhole(c.you + c.employer)}/mo
+            {c.employer > 0 ? ` (you ${formatMoneyWhole(c.you)}, employer ${formatMoneyWhole(c.employer)})` : ""}.
+            Everything else is market growth, interest, and withdrawals.
+          </Typography>
+        </>
+      ) : null}
 
       <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mt: 2 }}>
         <Stat

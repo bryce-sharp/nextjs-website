@@ -143,7 +143,20 @@ const DEDUCTION_TYPES = new Set([
   "employer_benefit",
 ]);
 
-function parseDeduction(formData: FormData) {
+/** An account id from the form, kept only when it is one of OUR accounts. */
+async function scopedAccountId(raw: FormDataEntryValue | null): Promise<number | null> {
+  const id = parseBoundedInt(raw, 1, 2 ** 31);
+  if (id === null) return null;
+  const groupId = await requireGroupId();
+  const [acct] = await db
+    .select({ id: financialAccounts.id })
+    .from(financialAccounts)
+    .where(and(eq(financialAccounts.id, id), eq(financialAccounts.groupId, groupId)))
+    .limit(1);
+  return acct ? id : null;
+}
+
+async function parseDeduction(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Name is required.");
   const typeRaw = parseStr(formData.get("type"));
@@ -171,6 +184,7 @@ function parseDeduction(formData: FormData) {
     source: formData.get("source") === "employer" ? "employer" : "payroll",
     amountPerPaycheck,
     percentOfGross,
+    depositAccountId: await scopedAccountId(formData.get("depositAccountId")),
     notes: parseStr(formData.get("notes")),
   };
 }
@@ -197,7 +211,7 @@ export async function addDeductionAction(
   formData: FormData,
 ): Promise<void> {
   await requireEditorFor(profileId);
-  const data = parseDeduction(formData);
+  const data = await parseDeduction(formData);
   const startDate =
     normalizeMonth(formData.get("startMonth")) ?? currentMonthISO();
   await db.insert(incomeDeductions).values({ ...data, profileId, startDate });
@@ -213,7 +227,7 @@ export async function updateDeductionAction(
   await requireEditorFor(row.profileId);
   await db
     .update(incomeDeductions)
-    .set(parseDeduction(formData))
+    .set(await parseDeduction(formData))
     .where(eq(incomeDeductions.id, id));
   revalidatePath(ATLAS);
 }
@@ -225,7 +239,7 @@ export async function replaceDeductionAction(
 ): Promise<void> {
   const row = await scopedDeduction(id);
   await requireEditorFor(row.profileId);
-  const data = parseDeduction(formData);
+  const data = await parseDeduction(formData);
   const startDate = normalizeMonth(formData.get("startMonth"));
   if (!startDate) throw new Error("Pick the month the change takes effect.");
 

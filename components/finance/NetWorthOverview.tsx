@@ -17,6 +17,7 @@ import { useTheme } from "@mui/material/styles";
 import {
   formatMoney,
   formatMoneyCompact,
+  formatMoneyDelta,
   formatMoneySigned,
   formatMoneyShort,
   formatMonth,
@@ -28,6 +29,7 @@ import {
   typeOfKind,
   type NetWorthRange,
 } from "@/lib/finance/net-worth";
+import type { AccountContributions } from "@/lib/queries/finance-networth";
 import Money from "./Money";
 import AccountDetail, { type DetailAccount } from "./AccountDetail";
 
@@ -64,6 +66,7 @@ export default function NetWorthOverview({
   totals,
   bank,
   kept,
+  contributions,
 }: {
   range: NetWorthRange;
   months: string[];
@@ -78,6 +81,7 @@ export default function NetWorthOverview({
     monthlyGoal: number | null;
   };
   kept: { kept: number; from: string; to: string } | null;
+  contributions: Record<number, AccountContributions>;
 }) {
   const mounted = useMounted();
   const theme = useTheme();
@@ -154,6 +158,8 @@ export default function NetWorthOverview({
 
   const primary = theme.vars?.palette.primary.main ?? theme.palette.primary.main;
   const muted = theme.vars?.palette.text.secondary ?? theme.palette.text.secondary;
+  const fromPay = Object.values(contributions).reduce((s, c) => s + c.cumulative[last], 0);
+  const payNames = accounts.filter((a) => contributions[a.id]).map((a) => a.name);
   const goalLine = bank.goal.map((g, i) => (i === 0 && bank.goal.some((v) => v != null) ? 0 : g));
   const bankLine = bank.cumulative.map((v, i) => (i === 0 ? 0 : v));
 
@@ -249,6 +255,14 @@ export default function NetWorthOverview({
             </LineChart>
           ) : null}
         </Box>
+
+        {view === "total" && fromPay > 0 && last > 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Of the {formatMoneyDelta(totals[last] - totals[0])} {rangePhrase},{" "}
+            <strong>{formatMoneyDelta(fromPay)}</strong> went straight from paychecks into{" "}
+            {payNames.join(" and ")}.
+          </Typography>
+        ) : null}
 
         {view === "bank" && kept && bank.cumulative[last] != null ? (
           <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 1, bgcolor: "action.hover" }}>
@@ -423,6 +437,7 @@ export default function NetWorthOverview({
           balances={balances[open.id] ?? []}
           totals={totals}
           rangePhrase={rangePhrase}
+          contributions={contributions[open.id]}
           onClose={() => setOpenId(null)}
         />
       ) : null}
