@@ -70,7 +70,9 @@ export default function NetWorthTiles({
       ? (stats.bankCumulative / stats.bankGoalToDate) * 100
       : null;
   const elapsed = monthDiff(startMonth, stats.currentMonth);
-  const perMonth = stats.rangeChange != null && elapsed > 0 ? stats.rangeChange / elapsed : null;
+  // Rounded to cents like the outlook's pace, so the two never differ by a dollar.
+  const perMonth =
+    stats.rangeChange != null && elapsed > 0 ? Math.round((stats.rangeChange / elapsed) * 100) / 100 : null;
 
   return (
     <Box
