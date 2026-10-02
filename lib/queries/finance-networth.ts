@@ -321,9 +321,12 @@ export async function getNetWorthDashboardForGroup(
 }
 
 /**
- * Paycheck contributions per account across the window, with ATLAS's own math:
- * each calendar month reads the pay plan and deductions in effect on its last
- * day, at paychecks-per-year ÷ 12 per month.
+ * Paycheck contributions per account across the window, with ATLAS's own math
+ * (the plan and deductions in effect on each payday). Semimonthly pay lands on
+ * the 15th and the last day, and money from a month-end payday reaches the
+ * account days later, in the NEXT month (the HSA shows the Sep 30 paycheck
+ * arriving Oct 1). So a month gets last month's final paycheck plus its own
+ * mid-month one. Other cadences fall back to the monthly average.
  */
 function contributionsFor(
   months: string[],
@@ -336,22 +339,47 @@ function contributionsFor(
   if (!rows.length || months.length === 0) return {};
   const people = [...new Set(rows.map((d) => d.profileId))];
 
-  // accountId → { you, employer } cents for one calendar month.
-  const monthOf = (month: string) => {
-    const asOf = lastDayOfMonth(month);
-    const out = new Map<number, { you: number; employer: number }>();
+  type Split = Map<number, { you: number; employer: number }>;
+  const add = (out: Split, d: (typeof rows)[number], c: number) => {
+    const e = out.get(d.depositAccountId!) ?? { you: 0, employer: 0 };
+    if (d.source === "employer") e.employer += c;
+    else e.you += c;
+    out.set(d.depositAccountId!, e);
+  };
+  // One payday's deductions, in cents, as of `date`; `times` scales the average fallback.
+  const payday = (out: Split, profileId: number, date: string, times = 1) => {
+    const plan = effectiveAt(plans.filter((p) => p.profileId === profileId), date).at(-1);
+    if (!plan) return;
+    const grossC = Math.round(Number(plan.grossPerPaycheck) * 100);
+    for (const d of effectiveAt(rows.filter((r) => r.profileId === profileId), date)) {
+      add(out, d, deductionPerCheckC(d, grossC) * times);
+    }
+  };
+
+  // accountId → { you, employer } cents that LANDED during one calendar month.
+  const landedIn = (month: string) => {
+    const out: Split = new Map();
+    const monthEnd = lastDayOfMonth(month);
     for (const profileId of people) {
-      const plan = effectiveAt(plans.filter((p) => p.profileId === profileId), asOf).at(-1);
-      if (!plan) continue;
-      const ppy = PAYCHECKS_PER_YEAR[plan.payFrequency] ?? 24;
-      const grossC = Math.round(Number(plan.grossPerPaycheck) * 100);
-      for (const d of effectiveAt(rows.filter((r) => r.profileId === profileId), asOf)) {
-        const c = (deductionPerCheckC(d, grossC) * ppy) / 12;
-        const e = out.get(d.depositAccountId!) ?? { you: 0, employer: 0 };
-        if (d.source === "employer") e.employer += c;
-        else e.you += c;
-        out.set(d.depositAccountId!, e);
+      const plan = effectiveAt(plans.filter((p) => p.profileId === profileId), monthEnd).at(-1);
+      const freq = plan?.payFrequency;
+      if (freq === "semimonthly" || freq === "monthly") {
+        payday(out, profileId, lastDayOfMonth(addMonths(month, -1)));
+        if (freq === "semimonthly") payday(out, profileId, `${month.slice(0, 7)}-15`);
+      } else if (plan) {
+        payday(out, profileId, monthEnd, (PAYCHECKS_PER_YEAR[plan.payFrequency] ?? 24) / 12);
       }
+    }
+    return out;
+  };
+
+  // The steady monthly rate at a month's end (what "adds $X/mo" reports).
+  const rateOf = (month: string) => {
+    const out: Split = new Map();
+    const monthEnd = lastDayOfMonth(month);
+    for (const profileId of people) {
+      const plan = effectiveAt(plans.filter((p) => p.profileId === profileId), monthEnd).at(-1);
+      if (plan) payday(out, profileId, monthEnd, (PAYCHECKS_PER_YEAR[plan.payFrequency] ?? 24) / 12);
     }
     return out;
   };
@@ -361,14 +389,14 @@ function contributionsFor(
   const cumulative = new Map(ids.map((id) => [id, months.map(() => 0)]));
   let i = 1;
   for (let m = addMonths(months[0], 1); m <= months[months.length - 1]; m = addMonths(m, 1)) {
-    for (const [id, e] of monthOf(m)) running.set(id, (running.get(id) ?? 0) + e.you + e.employer);
+    for (const [id, e] of landedIn(m)) running.set(id, (running.get(id) ?? 0) + e.you + e.employer);
     if (m === months[i]) {
       for (const id of ids) cumulative.get(id)![i] = Math.round(running.get(id)!) / 100;
       i++;
     }
   }
 
-  const latest = monthOf(months[months.length - 1]);
+  const latest = rateOf(months[months.length - 1]);
   const out: Record<number, AccountContributions> = {};
   for (const id of ids) {
     const e = latest.get(id) ?? { you: 0, employer: 0 };
