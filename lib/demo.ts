@@ -403,15 +403,15 @@ export async function reseedDemoGroup(groupId: number): Promise<void> {
   // ── Finance: net worth — 8 months of balances across 6 tracked accounts ─────
   // The Rewards Card is a credit card (trackBalance false) so it exists for the
   // future budget/ATLAS tabs without cluttering the monthly net-worth ritual.
-  // The two savings accounts are flagged includeInBankSaved, so "bank saved" is
-  // a real subset tracked against the $1,000/mo goal.
+  // Savings is every account owned; the goal ($1,000/mo from take-home, with
+  // the 401(k) deductions on top) lives with the budget, not here.
   const accountDefs = [
     { name: "Everyday Checking", kind: "checking", start: 3800, step: 120, wob: 260 },
-    { name: "High-Yield Savings", kind: "savings", bank: true, start: 21000, step: 900, wob: 400 },
+    { name: "High-Yield Savings", kind: "savings", start: 21000, step: 900, wob: 400 },
     { name: "Brokerage", kind: "brokerage", start: 34500, step: 650, wob: 700 },
     { name: "401(k)", kind: "retirement", start: 41000, step: 1100, wob: 300 },
     { name: "Crypto", kind: "crypto", start: 900, step: 140, wob: 180 },
-    { name: "Emergency Fund", kind: "savings", bank: true, start: 6000, step: 250, wob: 120 },
+    { name: "Emergency Fund", kind: "savings", start: 6000, step: 250, wob: 120 },
   ];
   const finAccounts = await db
     .insert(financialAccounts)
@@ -420,7 +420,6 @@ export async function reseedDemoGroup(groupId: number): Promise<void> {
         groupId,
         name: a.name,
         kind: a.kind,
-        includeInBankSaved: a.bank ?? false,
         sortOrder: i,
       })),
       {

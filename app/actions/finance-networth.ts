@@ -7,6 +7,9 @@ import { financialAccounts, accountSnapshots, savingsGoals } from "@/lib/db/sche
 import { requireEditor } from "@/lib/auth";
 import { requireGroupId } from "@/lib/session";
 import { accountOrder } from "@/lib/queries/finance-networth";
+import { getAtlasViewForGroup } from "@/lib/queries/finance-atlas";
+import { getGroupTimezone } from "@/lib/queries/group";
+import { todayISO } from "@/lib/finance/parse";
 
 // Net worth writes. Everything here is HOUSEHOLD data → requireEditor()
 // (communal), scoped to the session group. Money fields arrive as raw strings
@@ -44,6 +47,7 @@ const ACCOUNT_KINDS = new Set([
   "crypto",
   "hsa",
   "credit_card",
+  "wallet",
   "other",
 ]);
 
@@ -149,8 +153,17 @@ function parseAccount(formData: FormData) {
   return {
     name: String(formData.get("name") ?? "").trim(),
     kind: ACCOUNT_KINDS.has(kindRaw) ? kindRaw : "other",
-    includeInBankSaved: formData.get("includeInBankSaved") != null,
     trackBalance: formData.get("trackBalance") != null,
+    // One word or phrase per line; deduped case-insensitively, kept as typed.
+    transferPatterns: [
+      ...new Map(
+        String(formData.get("transferPatterns") ?? "")
+          .split("\n")
+          .map((x) => x.trim().slice(0, 60))
+          .filter(Boolean)
+          .map((x) => [x.toLowerCase(), x] as const),
+      ).values(),
+    ].slice(0, 20),
     carriesDiscretion: formData.get("carriesDiscretion") != null,
     notes: String(formData.get("notes") ?? "").trim() || null,
   };
@@ -290,6 +303,20 @@ export async function deleteAccountAction(
 
 // ── Savings goal (effective-dated segments, weightPlans-style) ────────────────
 /**
+ * The dialog takes the WHOLE goal (401k and HSA included); the row stores the
+ * take-home part, what ATLAS sets aside before discretionary. Paycheck savings
+ * are read as of the later of the start month and this month, so the goal
+ * you type is the goal you see today.
+ */
+async function takeHomePart(groupId: number, total: string, startMonth: string): Promise<string> {
+  const today = todayISO(await getGroupTimezone(groupId));
+  const thisMonth = `${today.slice(0, 7)}-01`;
+  const asOf = startMonth > thisMonth ? startMonth : thisMonth;
+  const atlas = await getAtlasViewForGroup(groupId, asOf, today);
+  return Math.max(0, Number(total) - atlas.totals.savingsFromPaycheck).toFixed(2);
+}
+
+/**
  * Edit the ACTIVE goal in place (typo fix / same-timeframe adjustment). The
  * start month is editable too: it decides when the goal line starts
  * accumulating, so getting it wrong is the one mistake that makes the goal
@@ -316,13 +343,14 @@ export async function saveSavingsGoalAction(formData: FormData): Promise<void> {
     active?.startMonth ??
     normalizeMonth(new Date().toISOString())!;
 
+  const takeHome = await takeHomePart(groupId, monthlyGoal, startMonth);
   if (active) {
     await db
       .update(savingsGoals)
-      .set({ monthlyGoal, startMonth })
+      .set({ monthlyGoal: takeHome, startMonth })
       .where(eq(savingsGoals.id, active.id));
   } else {
-    await db.insert(savingsGoals).values({ groupId, monthlyGoal, startMonth });
+    await db.insert(savingsGoals).values({ groupId, monthlyGoal: takeHome, startMonth });
   }
   revalidatePath(FINANCE, "layout");
 }
@@ -348,7 +376,9 @@ export async function startSavingsGoalAction(formData: FormData): Promise<void> 
     .where(and(eq(savingsGoals.groupId, groupId), isNull(savingsGoals.endMonth)))
     .limit(1);
 
-  await db.insert(savingsGoals).values({ groupId, monthlyGoal, startMonth });
+  await db
+    .insert(savingsGoals)
+    .values({ groupId, monthlyGoal: await takeHomePart(groupId, monthlyGoal, startMonth), startMonth });
 
   if (active && active.startMonth < startMonth) {
     // Previous segment ends the month before the new one starts.

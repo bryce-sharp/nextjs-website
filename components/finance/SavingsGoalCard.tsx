@@ -10,17 +10,22 @@ import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import SavingsGoalDialog from "./SavingsGoalDialog";
 import { formatMoney, formatMonth } from "@/lib/format";
 
-// ATLAS's explicit savings goal: set aside before discretionary, so spending
-// your whole discretionary budget still leaves this in the bank. It's the same
-// goal Net Worth measures bank-saved accounts against (one setting, two uses).
+// ATLAS's savings goal. Savings means money in any account you own, so the
+// goal counts what paychecks already save (401k, HSA) plus a take-home part
+// set aside before discretionary, so spending your whole discretionary budget
+// still leaves the goal saved.
 export default function SavingsGoalCard({
   goal,
+  paycheckSavings,
+  paycheckNames,
   since,
   editable,
   defaultMonth,
   yearOptions,
 }: {
-  goal: number; // monthly, dollars (0 = none)
+  goal: number; // the take-home part, monthly dollars (0 = none)
+  paycheckSavings: number; // monthly, already saved by deductions
+  paycheckNames: string[];
   since: string | null; // YYYY-MM-01 the goal in effect started
   editable: boolean;
   defaultMonth: string;
@@ -40,7 +45,7 @@ export default function SavingsGoalCard({
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {has
-                ? `${formatMoney(goal)} a month${since ? `, since ${formatMonth(since)}` : ""}`
+                ? `${formatMoney(goal + paycheckSavings)} a month${since ? `, since ${formatMonth(since)}` : ""}`
                 : "Not set — everything left after bills counts as discretionary."}
             </Typography>
           </div>
@@ -56,10 +61,16 @@ export default function SavingsGoalCard({
           </Button>
         ) : null}
       </Stack>
+      {has && paycheckSavings > 0 ? (
+        <Typography variant="body2" sx={{ mt: 1 }}>
+          {formatMoney(paycheckSavings)} from your paycheck ({paycheckNames.join(", ")}) +{" "}
+          {formatMoney(goal)} from take-home pay
+        </Typography>
+      ) : null}
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-        Taken off the top before your discretionary budget, so spending all of it
-        still leaves this in the bank. It never needs a transaction; Net Worth
-        tracks your bank-saved accounts against it.
+        Savings counts every account you own, so your paycheck&apos;s 401k and HSA money
+        is part of it. Only the take-home part comes off the top before your discretionary
+        budget, and it never needs a transaction.
       </Typography>
 
       {open ? (
@@ -67,6 +78,8 @@ export default function SavingsGoalCard({
           open
           onClose={() => setOpen(false)}
           activeGoal={has && since ? { monthlyGoal: goal, startMonth: since } : null}
+          paycheckSavings={paycheckSavings}
+          paycheckNames={paycheckNames}
           defaultMonth={defaultMonth}
           yearOptions={yearOptions}
         />

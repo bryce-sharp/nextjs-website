@@ -15,7 +15,7 @@ import { requireGroupId } from "@/lib/session";
 import { getGroupTimezone } from "@/lib/queries/group";
 import { parseMoney, parseStr, parseInt as parseBoundedInt, todayISO } from "@/lib/finance/parse";
 import { categorizeMerchant } from "@/lib/finance/sms";
-import { merchantRulesFor, resolveSpendCategory } from "@/lib/finance/ingest";
+import { asTransfer, merchantRulesFor, resolveSpendCategory, transferRulesFor } from "@/lib/finance/ingest";
 import { toTxnRow } from "@/lib/queries/finance-transactions";
 import type { TxnRowData } from "@/components/finance/TransactionRow";
 
@@ -33,6 +33,7 @@ const TXN_CATEGORIES = new Set([
   "reimbursement",
   "fund",
   "income",
+  "transfer",
   "ignored",
 ]);
 
@@ -68,6 +69,30 @@ async function validBill(groupId: number, id: number | null): Promise<number | n
     .where(and(eq(recurringExpenses.id, id), eq(recurringExpenses.groupId, groupId)))
     .limit(1);
   return b ? id : null;
+}
+
+/** Validate an account id belongs to the group (or null), with its kind. */
+async function validAccount(
+  groupId: number,
+  id: number | null,
+): Promise<{ id: number; kind: string } | null> {
+  if (id === null) return null;
+  const [a] = await db
+    .select({ id: financialAccounts.id, kind: financialAccounts.kind })
+    .from(financialAccounts)
+    .where(and(eq(financialAccounts.id, id), eq(financialAccounts.groupId, groupId)))
+    .limit(1);
+  return a ?? null;
+}
+
+/** Both sides of a transfer: two different accounts, neither a spending wallet
+ *  (money into a wallet is spent; money out of one was never counted). */
+function checkTransfer(from: { kind: string } | null, into: { id: number; kind: string } | null, fromId: number | null) {
+  if (!into) throw new Error("Pick the account the money moved into.");
+  if (into.id === fromId) throw new Error("A transfer needs two different accounts.");
+  if (into.kind === "wallet" || from?.kind === "wallet") {
+    throw new Error("Money into a spending wallet counts as spending, so record it as Discretionary instead.");
+  }
 }
 
 /**
@@ -112,6 +137,15 @@ export async function updateTransactionAction(
       parseBoundedInt(formData.get("recurringExpenseId"), 1, 2 ** 31),
     );
   }
+  if (has("accountId")) {
+    set.accountId =
+      (await validAccount(groupId, parseBoundedInt(formData.get("accountId"), 1, 2 ** 31)))?.id ?? null;
+  }
+  if (has("transferAccountId")) {
+    set.transferAccountId =
+      (await validAccount(groupId, parseBoundedInt(formData.get("transferAccountId"), 1, 2 ** 31)))?.id ??
+      null;
+  }
 
   // Links only mean something for their category; keep them honest whether the
   // category changed in THIS save or was already set. fund ↔ fund category,
@@ -121,10 +155,18 @@ export async function updateTransactionAction(
   if (effectiveCategory !== "fixed" && effectiveCategory !== "amortized") {
     set.recurringExpenseId = null;
   }
+  if (effectiveCategory === "transfer") {
+    const fromId = ("accountId" in set ? set.accountId : row.accountId) as number | null;
+    const intoId = ("transferAccountId" in set ? set.transferAccountId : row.transferAccountId) as number | null;
+    checkTransfer(await validAccount(groupId, fromId), await validAccount(groupId, intoId), fromId);
+    set.spendCategory = null; // transfers are never tagged
+  } else {
+    set.transferAccountId = null;
+  }
 
   // An untagged row picks up its tag from the merchant rules (e.g. fixing an
   // unreadable alert's merchant); an existing tag is never overwritten here.
-  if (row.spendCategory == null) {
+  if (row.spendCategory == null && effectiveCategory !== "transfer") {
     set.spendCategory = await resolveSpendCategory(
       groupId,
       effectiveCategory,
@@ -155,7 +197,8 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
   if (amount === null || Number(amount) <= 0) throw new Error("Enter an amount.");
   const postedOn = parseStr(formData.get("postedOn")) ?? todayISO(await getGroupTimezone(groupId));
   const merchant = parseStr(formData.get("merchant"));
-  const kind = formData.get("kind") === "income" ? "income" : "expense";
+  const kindRaw = formData.get("kind");
+  const kind = kindRaw === "income" ? "income" : kindRaw === "transfer" ? "transfer" : "expense";
   const categoryRaw = String(formData.get("category") ?? "auto");
 
   // Category resolution: income is forced by the toggle; "auto" runs the same
@@ -164,7 +207,10 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
   let category: string;
   let autoRecurringId: number | null = null;
   let storeAmount = amount; // the signed value actually stored
-  if (kind === "income") {
+  let transferAccountId: number | null = null;
+  if (kind === "transfer") {
+    category = "transfer";
+  } else if (kind === "income") {
     // Money in picks a budget destination: "spend" credits Left-to-Spend (a
     // negative discretionary row — reads green "+", raises the budget);
     // "reimbursement" is a payback (credits the budget, tracked on its own);
@@ -183,6 +229,18 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
     const c = categorizeMerchant(merchant ?? "", rules);
     category = c.category;
     autoRecurringId = c.recurringExpenseId;
+    // An account's transfer words beat the bill and tag rules.
+    const t = asTransfer(
+      merchant,
+      amount,
+      parseBoundedInt(formData.get("accountId"), 1, 2 ** 31),
+      await transferRulesFor(groupId),
+    );
+    if (t) {
+      category = "transfer";
+      autoRecurringId = null;
+      transferAccountId = t.transferAccountId;
+    }
   } else if (TXN_CATEGORIES.has(categoryRaw) && categoryRaw !== "income") {
     category = categoryRaw;
   } else {
@@ -199,6 +257,14 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
       .limit(1);
     if (!a) accountId = null;
   }
+  if (kind === "transfer") {
+    const into = await validAccount(
+      groupId,
+      parseBoundedInt(formData.get("transferAccountId"), 1, 2 ** 31),
+    );
+    checkTransfer(await validAccount(groupId, accountId), into, accountId);
+    transferAccountId = into!.id;
+  }
   const fundId = category === "fund"
     ? await validFund(groupId, parseBoundedInt(formData.get("fundId"), 1, 2 ** 31))
     : null;
@@ -213,6 +279,7 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
   await db.insert(transactions).values({
     groupId,
     accountId,
+    transferAccountId,
     postedOn,
     merchant,
     amount: storeAmount,
@@ -220,7 +287,10 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
     category,
     fundId,
     recurringExpenseId,
-    spendCategory: await resolveSpendCategory(groupId, category, merchant, recurringExpenseId),
+    spendCategory:
+      category === "transfer"
+        ? null
+        : await resolveSpendCategory(groupId, category, merchant, recurringExpenseId),
     source: "manual",
     note: parseStr(formData.get("note")),
   });

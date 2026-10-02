@@ -46,7 +46,7 @@ import {
 } from "@/app/actions/finance-transactions";
 import type { TxnFilters } from "@/lib/queries/finance-transactions";
 
-export type TxnAccount = { id: number; name: string };
+export type TxnAccount = { id: number; name: string; kind?: string };
 
 type Anchored = { txn: TxnRowData; anchor: HTMLElement };
 
@@ -292,6 +292,7 @@ export default function TransactionsTable({
                   key={t.id}
                   txn={t}
                   funds={funds}
+                  accounts={accounts}
                   onMenu={openMenu}
                   onRowClick={isPhone ? openMenu : undefined}
                   onEditCategory={editable ? (txn, anchor) => setTagging({ txn, anchor }) : undefined}
@@ -362,6 +363,7 @@ export default function TransactionsTable({
         <TransactionDetailDialog
           txn={detail}
           funds={funds}
+          accounts={accounts}
           bills={bills}
           merchants={merchants}
           sources={sources}

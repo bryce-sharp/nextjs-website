@@ -49,7 +49,14 @@ export type BudgetView = {
    *  (income 0 − bills = a misleading negative), so the page shows a note. */
   hasIncome: boolean;
   /** The ATLAS plan behind the budget, in cents (the month report's "planned"). */
-  plan: { monthlyNetC: number; billsC: number; savingsGoalC: number };
+  plan: {
+    monthlyNetC: number;
+    billsC: number;
+    savingsGoalC: number;
+    paycheckSavingsC: number;
+    /** What paychecks have saved so far: all of it once the month is over. */
+    paycheckSavedSoFarC: number;
+  };
 };
 
 /**
@@ -195,8 +202,36 @@ export async function getBudgetMonthForGroup(
       monthlyNetC: cents(atlas.totals.monthlyNet),
       billsC: cents(atlas.totals.fixedMonthly),
       savingsGoalC: cents(atlas.totals.savingsGoal),
+      paycheckSavingsC: cents(atlas.totals.savingsFromPaycheck),
+      paycheckSavedSoFarC: paycheckSavedSoFarC(
+        atlas.totals.paycheckSavingsChecks,
+        cents(atlas.totals.savingsFromPaycheck),
+        computation.dayOfMonth,
+        computation.daysInMonth,
+      ),
     },
   };
+}
+
+/**
+ * Paycheck savings that have happened by `day` of the month. Semimonthly pay
+ * lands on the 15th and the last day, monthly on the last day; other cadences
+ * accrue evenly. A finished month (day = last day) always counts the full plan.
+ */
+function paycheckSavedSoFarC(
+  checks: { payFrequency: string; perCheck: number }[],
+  planC: number,
+  day: number,
+  daysInMonth: number,
+): number {
+  if (day >= daysInMonth) return planC;
+  let c = 0;
+  for (const ch of checks) {
+    const perC = cents(ch.perCheck);
+    if (ch.payFrequency === "semimonthly") c += day >= 15 ? perC : 0;
+    else if (ch.payFrequency !== "monthly") c += Math.round((perC * (ch.payFrequency === "weekly" ? 52 : 26) * day) / 12 / daysInMonth);
+  }
+  return Math.min(c, planC);
 }
 
 /** A month's report inputs from its computation + cash-flow lanes (null = no plan). */
@@ -213,6 +248,7 @@ function monthReportInput(view: BudgetView, lanes: CategoryFlow[]): MonthReportI
       discretionary: dl(disc.budgetC),
       savingsGoal: dl(view.plan.savingsGoalC),
       estimateAdjustment: dl(disc.estimateAdjustmentC),
+      paycheckSavings: dl(view.plan.paycheckSavingsC),
     },
     actual: {
       income: inn("income"),
@@ -221,6 +257,7 @@ function monthReportInput(view: BudgetView, lanes: CategoryFlow[]): MonthReportI
       bills: out("fixed") + out("amortized"),
       offBudget: out("savings"),
       funds: out("fund"),
+      paycheckSavings: dl(view.plan.paycheckSavedSoFarC),
     },
   };
 }

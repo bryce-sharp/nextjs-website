@@ -94,6 +94,8 @@ export function toTxnRow(t: typeof transactions.$inferSelect): TxnRowData {
     spendCategory: t.spendCategory,
     fundId: t.fundId,
     recurringExpenseId: t.recurringExpenseId,
+    accountId: t.accountId,
+    transferAccountId: t.transferAccountId,
     needsReview: t.needsReview,
     note: t.note,
     source: t.source,

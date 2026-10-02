@@ -21,8 +21,10 @@ import {
 } from "@/app/actions/finance-networth";
 import { formatMoney, formatMonth } from "@/lib/format";
 
-// The monthly savings goal (ATLAS sets it aside before discretionary; Net
-// Worth's "Bank saved" line measures against it). Two save flavors, matching the weight app's
+// The monthly savings goal. Savings means money in any account you own, so
+// the goal you type includes what paychecks already put into 401k and HSA;
+// the server stores the take-home rest, which ATLAS sets aside before
+// discretionary. Two save flavors, matching the weight app's
 // plan dialog: ADJUST the current goal in place (typo/tune-up — the whole goal
 // line recomputes) or START a new segment from a month (raise season — history
 // keeps the old goal, the line bends going forward).
@@ -30,12 +32,18 @@ export default function SavingsGoalDialog({
   open,
   onClose,
   activeGoal,
+  paycheckSavings,
+  paycheckNames,
   defaultMonth,
   yearOptions,
 }: {
   open: boolean;
   onClose: () => void;
+  /** monthlyGoal is the stored take-home part. */
   activeGoal: { monthlyGoal: number; startMonth: string } | null;
+  /** What paychecks save each month right now (401k, HSA). */
+  paycheckSavings: number;
+  paycheckNames: string[];
   /** "YYYY-MM" default for new segments. */
   defaultMonth: string;
   /** Years for the month picker (current year back through the oldest data). */
@@ -50,6 +58,8 @@ export default function SavingsGoalDialog({
     activeGoal ? activeGoal.startMonth.slice(0, 7) : defaultMonth,
   );
   const [error, setError] = React.useState<string | null>(null);
+  const total = activeGoal ? activeGoal.monthlyGoal + paycheckSavings : null;
+  const paycheckLabel = paycheckNames.length ? paycheckNames.join(" and ") : "401k and HSA";
 
   // A goal can legitimately start next year (a raise you already know about),
   // which the snapshot years never need — you can't log a future balance.
@@ -88,8 +98,8 @@ export default function SavingsGoalDialog({
             {activeGoal ? (
               <>
                 <Typography variant="body2" color="text.secondary">
-                  Current: <strong>{formatMoney(activeGoal.monthlyGoal)}/mo</strong>{" "}
-                  since {formatMonth(activeGoal.startMonth)}.
+                  Current: <strong>{formatMoney(total)}/mo</strong> since{" "}
+                  {formatMonth(activeGoal.startMonth)}.
                 </Typography>
                 <RadioGroup
                   value={flavor}
@@ -109,18 +119,26 @@ export default function SavingsGoalDialog({
               </>
             ) : (
               <Typography variant="body2" color="text.secondary">
-                How much to keep each month. ATLAS sets it aside before your
-                discretionary budget, and Net Worth tracks your bank-saved
-                accounts against it.
+                How much to save each month, counting every account you own.
+                ATLAS sets the take-home part aside before your discretionary
+                budget.
               </Typography>
             )}
-            <NumberField
-              name="monthlyGoal"
-              label="Monthly goal"
-              prefix="$"
-              decimalScale={2}
-              defaultValue={activeGoal?.monthlyGoal ?? null}
-            />
+            <Stack spacing={0.75}>
+              <NumberField
+                name="monthlyGoal"
+                label="Monthly savings goal"
+                prefix="$"
+                decimalScale={2}
+                defaultValue={total}
+              />
+              {paycheckSavings > 0 ? (
+                <Typography variant="caption" color="text.secondary">
+                  Includes the {formatMoney(paycheckSavings)}/mo your paycheck already puts into{" "}
+                  {paycheckLabel}. Only the rest comes out of take-home pay.
+                </Typography>
+              ) : null}
+            </Stack>
             {/* Always editable: the start month decides when the goal line
                 begins accumulating, so a wrong one silently leaves the tile
                 with no goal at all. */}

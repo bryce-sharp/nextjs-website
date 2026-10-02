@@ -38,7 +38,7 @@ export type ManagedAccount = {
   id: number;
   name: string;
   kind: string;
-  includeInBankSaved: boolean;
+  transferPatterns: string[];
   trackBalance: boolean;
   carriesDiscretion: boolean;
   archived: boolean;
@@ -53,6 +53,7 @@ const KINDS: { value: string; label: string }[] = [
   { value: "crypto", label: "Crypto" },
   { value: "hsa", label: "HSA" },
   { value: "credit_card", label: "Credit card" },
+  { value: "wallet", label: "Spending wallet" },
   { value: "other", label: "Other" },
 ];
 
@@ -159,8 +160,10 @@ export default function AccountsManager({
                       size="small"
                       label={KINDS.find((k) => k.value === a.kind)?.label ?? a.kind}
                     />
-                    {a.includeInBankSaved ? (
-                      <Chip size="small" color="primary" variant="outlined" label="bank saved" />
+                    {a.transferPatterns.length ? (
+                      <Tooltip title={`Rows mentioning ${a.transferPatterns.join(", ")} become transfers into ${a.name}`}>
+                        <Chip size="small" color="primary" variant="outlined" label="auto transfers" />
+                      </Tooltip>
                     ) : null}
                     {a.carriesDiscretion ? (
                       <Chip size="small" color="warning" variant="outlined" label="spending" />
@@ -247,21 +250,15 @@ export default function AccountsManager({
                   ))}
                 </TextField>
               </Box>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    name="includeInBankSaved"
-                    defaultChecked={editing?.includeInBankSaved ?? false}
-                  />
-                }
-                label={
-                  <>
-                    Count in <strong>Bank saved</strong>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      The cash-savings subset tracked against your monthly goal.
-                    </Typography>
-                  </>
-                }
+              <TextField
+                name="transferPatterns"
+                label="Transfer words (optional)"
+                fullWidth
+                multiline
+                minRows={1}
+                defaultValue={editing?.transferPatterns.join("\n") ?? ""}
+                placeholder="SCHWAB"
+                helperText="One per line. A transaction that mentions one becomes a transfer into this account, not spending."
               />
               <FormControlLabel
                 control={

@@ -14,8 +14,8 @@ import {
   formatMoneyWhole,
   formatMonth,
 } from "@/lib/format";
-import { KIND_LABELS, accountStats, changesOf } from "@/lib/finance/net-worth";
-import type { AccountContributions } from "@/lib/queries/finance-networth";
+import { INVESTMENT_KINDS, KIND_LABELS, accountStats, changesOf } from "@/lib/finance/net-worth";
+import type { AccountContributions, AccountFlows } from "@/lib/queries/finance-networth";
 
 const noopSubscribe = () => () => {};
 function useMounted() {
@@ -26,7 +26,6 @@ export type DetailAccount = {
   id: number;
   name: string;
   kind: string;
-  includeInBankSaved: boolean;
   archived: boolean;
 };
 
@@ -51,12 +50,24 @@ function Stat({ label, value, sub, color }: { label: string; value: string; sub?
   );
 }
 
+function Line({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2, py: 0.5 }}>
+      <Typography variant="body2">{label}</Typography>
+      <Typography variant="body2" fontWeight={600} sx={{ color }}>
+        {value}
+      </Typography>
+    </Box>
+  );
+}
+
 const short = (m: string) => formatMonth(m).slice(0, 3);
 
 // One account's story across the range: its balance line, how it moves per
 // month, its share of the total, and every logged balance (newest first).
-// When paycheck deductions land in it (401k, HSA), the growth splits into
-// what pay put in vs everything else, with a dashed "paycheck money only" line.
+// Investment accounts split their growth into money put in (paycheck 401k/HSA
+// money and transfers from your other accounts) vs everything else, with a
+// dashed "money put in" line. Every account lists the income that landed in it.
 export default function AccountDetail({
   account,
   color,
@@ -65,6 +76,7 @@ export default function AccountDetail({
   totals,
   rangePhrase,
   contributions,
+  flows,
   onClose,
 }: {
   account: DetailAccount;
@@ -74,6 +86,7 @@ export default function AccountDetail({
   totals: number[];
   rangePhrase: string; // "this year", "over 12 months", "since Dec 2025"
   contributions?: AccountContributions;
+  flows?: AccountFlows;
   onClose: () => void;
 }) {
   const mounted = useMounted();
@@ -81,20 +94,36 @@ export default function AccountDetail({
   const changes = changesOf(months, balances);
   const x = months.map((m) => new Date(`${m.slice(0, 7)}-01T12:00:00`));
   const rows = months.map((_, i) => i).reverse();
+  const last = months.length - 1;
+  const investing = INVESTMENT_KINDS.includes(account.kind);
 
-  // Paycheck money from the account's first logged balance on.
+  // Every series counts from the account's first logged balance on.
   const firstIdx = balances.findIndex((v) => v != null);
-  const c = contributions && firstIdx >= 0 ? contributions : undefined;
-  const paid = c ? c.cumulative[months.length - 1] - c.cumulative[firstIdx] : null;
-  const rest = paid != null && s.change != null ? s.change - paid : null;
-  const paycheckLine = c
-    ? months.map((_, i) => (i >= firstIdx ? balances[firstIdx]! + c.cumulative[i] - c.cumulative[firstIdx] : null))
-    : null;
-  // With the dashed line, zoom in so the gap between the two lines reads.
-  const lows = [...balances, ...(paycheckLine ?? [])].filter((v): v is number => v != null);
-  const floor = paycheckLine && lows.length ? Math.max(0, Math.floor((Math.min(...lows) * 0.9) / 1000) * 1000) : undefined;
+  const since = (series: number[] | undefined) =>
+    series && firstIdx >= 0 ? series[last] - series[firstIdx] : 0;
+  const paid = since(contributions?.cumulative);
+  const movedIn = since(flows?.movedIn);
+  const movedOut = since(flows?.movedOut);
+  const landed = flows?.landed ?? [];
+  const landedTotal = landed.reduce((t, l) => t + l.amount, 0);
+  const putIn = paid + movedIn - movedOut + landedTotal;
+  const hasPutIn = paid !== 0 || movedIn !== 0 || movedOut !== 0 || landedTotal !== 0;
+  const rest = s.change != null ? s.change - putIn : null;
 
-  const overline = [KIND_LABELS[account.kind] ?? account.kind, account.includeInBankSaved ? "Bank saved" : null, account.archived ? "Archived" : null]
+  // The dashed line: where the balance would be on money put in alone.
+  const putInLine =
+    investing && hasPutIn && firstIdx >= 0
+      ? months.map((_, i) => {
+          if (i < firstIdx) return null;
+          const at = (series: number[] | undefined) => (series ? series[i] - series[firstIdx] : 0);
+          return balances[firstIdx]! + at(contributions?.cumulative) + at(flows?.movedIn) - at(flows?.movedOut);
+        })
+      : null;
+  // With the dashed line, zoom in so the gap between the two lines reads.
+  const lows = [...balances, ...(putInLine ?? [])].filter((v): v is number => v != null);
+  const floor = putInLine && lows.length ? Math.max(0, Math.floor((Math.min(...lows) * 0.9) / 1000) * 1000) : undefined;
+
+  const overline = [KIND_LABELS[account.kind] ?? account.kind, account.archived ? "Archived" : null]
     .filter(Boolean)
     .join(" · ");
 
@@ -126,12 +155,12 @@ export default function AccountDetail({
                 curve: "monotoneX",
                 valueFormatter: (v) => (v == null ? "—" : formatMoney(v)),
               },
-              ...(paycheckLine
+              ...(putInLine
                 ? [
                     {
-                      id: "paid",
-                      label: "Paycheck money only",
-                      data: paycheckLine,
+                      id: "putin",
+                      label: "Money put in only",
+                      data: putInLine,
                       color: "var(--chart-other)",
                       showMark: false,
                       valueFormatter: (v: number | null) => (v == null ? "—" : formatMoney(v)),
@@ -148,32 +177,58 @@ export default function AccountDetail({
               },
             ]}
             yAxis={[{ min: floor, valueFormatter: (v: number) => formatMoneyCompact(v), width: 52 }]}
-            hideLegend={!paycheckLine}
+            hideLegend={!putInLine}
             margin={{ top: 8, right: 12, bottom: 4, left: 4 }}
             sx={{
               [`& .${lineClasses.area}`]: { opacity: 0.2 },
-              [`& .${lineClasses.line}[data-series="paid"]`]: { strokeDasharray: "6 4" },
+              [`& .${lineClasses.line}[data-series="putin"]`]: { strokeDasharray: "6 4" },
             }}
           />
         ) : null}
       </Box>
 
-      {c && paid != null ? (
+      {investing && hasPutIn ? (
         <>
           <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mt: 2 }}>
-            <Stat label="From paychecks" value={formatMoneyDelta(paid)} color={tone(paid)} />
-            <Stat
-              label="Everything else"
-              value={rest == null ? "—" : formatMoneyDelta(rest)}
-              color={tone(rest)}
-            />
+            <Stat label="Money put in" value={formatMoneyDelta(putIn)} color={tone(putIn)} />
+            <Stat label="Everything else" value={rest == null ? "—" : formatMoneyDelta(rest)} color={tone(rest)} />
           </Box>
-          <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.75 }}>
-            {c.names.join(" and ")} adds {formatMoneyWhole(c.you + c.employer)}/mo
-            {c.employer > 0 ? ` (you ${formatMoneyWhole(c.you)}, employer ${formatMoneyWhole(c.employer)})` : ""}.
-            Everything else is market growth, interest, and withdrawals.
+          <Box sx={{ mt: 1 }}>
+            {paid !== 0 ? <Line label="From paychecks" value={formatMoneyDelta(paid)} /> : null}
+            {movedIn !== 0 ? <Line label="Moved in from your accounts" value={formatMoneyDelta(movedIn)} /> : null}
+            {movedOut !== 0 ? <Line label="Moved out to your accounts" value={formatMoneyDelta(-movedOut)} /> : null}
+            {landedTotal !== 0 ? <Line label="Income that landed here" value={formatMoneyDelta(landedTotal)} /> : null}
+          </Box>
+          <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.5 }}>
+            {contributions && contributions.you + contributions.employer > 0
+              ? `${contributions.names.join(" and ")} adds ${formatMoneyWhole(contributions.you + contributions.employer)}/mo${
+                  contributions.employer > 0
+                    ? ` (you ${formatMoneyWhole(contributions.you)}, employer ${formatMoneyWhole(contributions.employer)})`
+                    : ""
+                }. `
+              : ""}
+            Everything else is market growth, interest, fees, and anything not recorded.
           </Typography>
         </>
+      ) : null}
+
+      {!investing && (landed.length > 0 || movedIn !== 0 || movedOut !== 0) ? (
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" color="text.secondary">
+            Money that landed here
+          </Typography>
+          {landed.slice(0, 6).map((l) => (
+            <Line key={l.tag ?? "untagged"} label={l.tag ?? "Untagged"} value={formatMoneyDelta(l.amount)} />
+          ))}
+          {landed.length > 6 ? (
+            <Line
+              label="Everything else"
+              value={formatMoneyDelta(landed.slice(6).reduce((t, l) => t + l.amount, 0))}
+            />
+          ) : null}
+          {movedIn !== 0 ? <Line label="Moved in from your accounts" value={formatMoneyDelta(movedIn)} /> : null}
+          {movedOut !== 0 ? <Line label="Moved out to your accounts" value={formatMoneyDelta(-movedOut)} /> : null}
+        </Box>
       ) : null}
 
       <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mt: 2 }}>

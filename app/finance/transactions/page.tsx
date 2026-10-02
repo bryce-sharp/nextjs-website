@@ -18,6 +18,7 @@ import {
   summarizeCashFlow,
 } from "@/lib/queries/finance-cashflow";
 import { getMerchantGroupsForGroup } from "@/lib/queries/finance-categories";
+import { listFinancialAccounts } from "@/lib/queries/finance-networth";
 import { LANE_LABELS, UNTAGGED, flowOf, type Flow } from "@/lib/finance/cashflow";
 import {
   getMonthReportForGroup,
@@ -208,6 +209,7 @@ export default async function HistoryPage({
     suggest,
     editor,
     report,
+    allAccounts,
   ] = await Promise.all([
     searchTransactionsForGroup(groupId, listFilters, null),
     summarizeCashFlow(groupId, listFilters),
@@ -228,7 +230,11 @@ export default async function HistoryPage({
       : month
         ? getMonthReportForGroup(groupId, month, today)
         : getRangeReportForGroup(groupId, from, to, today),
+    listFinancialAccounts(),
   ]);
+  const accounts = allAccounts
+    .filter((a) => !a.archivedAt)
+    .map((a) => ({ id: a.id, name: a.name, kind: a.kind }));
   const tagLabel = tag === UNTAGGED ? "Untagged" : tag;
   const categories = outGroups.categories;
   const incomeCategories = inGroups.categories;
@@ -307,6 +313,7 @@ export default async function HistoryPage({
         emptyText="No transactions match these filters."
         funds={funds}
         bills={bills}
+        accounts={accounts}
         merchants={suggest.merchants}
         sources={suggest.sources}
         categories={categories}

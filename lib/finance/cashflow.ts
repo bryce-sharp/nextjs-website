@@ -22,7 +22,11 @@ export const LANE_LABELS: Record<string, string> = {
   fund: "Fund purchases",
   income: "Income",
   reimbursement: "Reimbursements",
+  transfer: "Transfers",
 };
+
+/** Money moved between your own accounts: never in, never out, never tagged. */
+export const TRANSFER = "transfer";
 
 /** Lanes whose tags come from the Categories-tab rules (bills inherit theirs). */
 export const RULE_CATEGORIES: Record<Flow, readonly string[]> = {

@@ -16,14 +16,16 @@ import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import SubmitButton from "@/components/shared/SubmitButton";
 import NumberField from "@/components/shared/NumberField";
 import SuggestField from "@/components/shared/SuggestField";
+import TransferAccounts from "./TransferAccounts";
 import { addManualTransactionAction } from "@/app/actions/finance-budget";
 import { CATEGORY_OPTIONS, billsActiveOn, type TxnFund, type TxnBill } from "./TransactionRow";
 import type { TxnAccount } from "./TransactionsTable";
 import { todayISO } from "@/lib/finance/parse";
 
-// Quick-add for what the bank didn't text — a gas-station swipe, or INCOME
-// (a paycheck, grandma's $100). The expense/income toggle picks the lane;
-// income skips the category picker (it's never spend). Defaults to today.
+// Quick-add for what the bank didn't text — a gas-station swipe, INCOME
+// (a paycheck, grandma's $100), or a TRANSFER between your own accounts
+// (Ally → Schwab). The toggle picks the lane; income and transfers skip the
+// category picker (neither is spend). Defaults to today.
 export default function AddTransactionDialog({
   funds,
   bills,
@@ -39,7 +41,7 @@ export default function AddTransactionDialog({
   sources: string[];
   onClose: () => void;
 }) {
-  const [kind, setKind] = React.useState<"expense" | "income">("expense");
+  const [kind, setKind] = React.useState<"expense" | "income" | "transfer">("expense");
   // Default "auto" = let the merchant categorizer decide (same as SMS); you
   // only pick a category to override for the special lanes.
   const [category, setCategory] = React.useState("auto");
@@ -79,10 +81,11 @@ export default function AddTransactionDialog({
               fullWidth
               size="small"
               value={kind}
-              onChange={(_, v: "expense" | "income" | null) => v && setKind(v)}
+              onChange={(_, v: "expense" | "income" | "transfer" | null) => v && setKind(v)}
             >
               <ToggleButton value="expense">Expense</ToggleButton>
               <ToggleButton value="income">Income</ToggleButton>
+              {accounts.length > 1 ? <ToggleButton value="transfer">Transfer</ToggleButton> : null}
             </ToggleButtonGroup>
 
             <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "1fr 1fr" }}>
@@ -97,12 +100,19 @@ export default function AddTransactionDialog({
               />
             </Box>
 
-            <SuggestField
-              name="merchant"
-              label={kind === "income" ? "Source" : "Merchant"}
-              options={kind === "income" ? sources : merchants}
-              placeholder={kind === "income" ? "e.g. Paycheck, Grandma" : "e.g. Shell, gas"}
-            />
+            {kind === "transfer" ? (
+              <>
+                <TransferAccounts accounts={accounts} fromId={null} intoId={null} />
+                <TextField name="merchant" label="Description (optional)" placeholder="e.g. Monthly Schwab deposit" />
+              </>
+            ) : (
+              <SuggestField
+                name="merchant"
+                label={kind === "income" ? "Source" : "Merchant"}
+                options={kind === "income" ? sources : merchants}
+                placeholder={kind === "income" ? "e.g. Paycheck, Grandma" : "e.g. Shell, gas"}
+              />
+            )}
 
             {kind === "income" ? (
               <>
@@ -208,7 +218,7 @@ export default function AddTransactionDialog({
               </>
             ) : null}
 
-            {accounts.length > 0 ? (
+            {accounts.length > 0 && kind !== "transfer" ? (
               <TextField name="accountId" label="Account (optional)" select defaultValue="">
                 <MenuItem value="">
                   <em>Unattributed</em>

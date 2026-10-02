@@ -104,7 +104,7 @@ export default async function BudgetPage({
   }));
   const accountPicks = accounts
     .filter((a) => !a.archivedAt)
-    .map((a) => ({ id: a.id, name: a.name }));
+    .map((a) => ({ id: a.id, name: a.name, kind: a.kind }));
   const ownerPicks = groupProfiles.map((p) => ({ id: p.id, name: p.name }));
   const earliestMonth = monthsWithData[0] ?? null;
 

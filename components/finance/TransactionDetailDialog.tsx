@@ -15,14 +15,17 @@ import Alert from "@mui/material/Alert";
 import SubmitButton from "@/components/shared/SubmitButton";
 import NumberField from "@/components/shared/NumberField";
 import SuggestField from "@/components/shared/SuggestField";
+import TransferAccounts from "./TransferAccounts";
 import { updateTransactionAction } from "@/app/actions/finance-budget";
 import {
   CATEGORY_OPTIONS,
+  FLOW_GROUP_LABELS,
   billsActiveOn,
   type TxnRowData,
   type TxnFund,
   type TxnBill,
 } from "./TransactionRow";
+import type { TxnAccount } from "./TransactionsTable";
 
 // The fuller edit for a transaction (the ⋮ → Edit details): everything the
 // inline row doesn't cover — merchant, date, note, fund, category, amount — in
@@ -31,6 +34,7 @@ import {
 export default function TransactionDetailDialog({
   txn,
   funds,
+  accounts = [],
   bills,
   merchants,
   sources,
@@ -39,6 +43,7 @@ export default function TransactionDetailDialog({
 }: {
   txn: TxnRowData;
   funds: TxnFund[];
+  accounts?: TxnAccount[];
   bills: TxnBill[];
   merchants: string[];
   sources: string[];
@@ -112,8 +117,8 @@ export default function TransactionDetailDialog({
               }
             >
               {/* Select can't take fragments, so the grouped list is one flat array. */}
-              {(["out", "in"] as const).flatMap((flow) => [
-                <ListSubheader key={flow}>{flow === "out" ? "Money out" : "Money in"}</ListSubheader>,
+              {(["out", "in", "move"] as const).flatMap((flow) => [
+                <ListSubheader key={flow}>{FLOW_GROUP_LABELS[flow]}</ListSubheader>,
                 ...CATEGORY_OPTIONS.filter((c) => c.flow === flow).map((c) => (
                   <MenuItem key={c.value} value={c.value}>
                     {c.label}
@@ -121,6 +126,13 @@ export default function TransactionDetailDialog({
                 )),
               ])}
             </TextField>
+            {category === "transfer" ? (
+              <TransferAccounts
+                accounts={accounts}
+                fromId={txn.accountId}
+                intoId={txn.transferAccountId}
+              />
+            ) : null}
             {category === "fund" ? (
               <TextField
                 name="fundId"
