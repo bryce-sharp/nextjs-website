@@ -1,8 +1,9 @@
 // A month's budget report: the plan (ATLAS pay, bills, discretionary budget,
 // savings goal) against what actually happened, line by line, built so the
 // line differences add up EXACTLY to what you kept vs the goal. Savings
-// counts every account you own, so the paycheck's 401k/HSA money sits on top:
-// planned and actual are the same ATLAS figure, so it never moves the gap. Discretionary
+// counts every account you own, so the paycheck's 401k/HSA money sits on top.
+// Its actual is the ATLAS plan for the paydays that have passed, so a finished
+// month matches the plan and never moves the gap. Discretionary
 // matches the Budget page (net of reimbursements; variable bills reconcile
 // into it, so planned bills absorb the same adjustment), and money in/out
 // match History's cash-flow totals. Pure — shared by History and Budget.
@@ -25,6 +26,7 @@ export type MonthReportInput = {
     bills: number; // fixed + amortized rows
     offBudget: number;
     funds: number; // fund purchases (deposits excluded)
+    paycheckSavings: number; // the plan's paycheck savings from paydays that have passed
   };
 };
 
@@ -41,8 +43,8 @@ export type ReportLine = {
 export type MonthReport = {
   lines: ReportLine[];
   kept: { goal: number; actual: number; diff: number };
-  /** Kept plus the paycheck's savings, against the whole goal (same diff). */
-  saved: { paycheck: number; goal: number; actual: number };
+  /** Kept plus the paycheck's savings, against the whole goal. */
+  saved: { paycheckPlanned: number; paycheck: number; goal: number; actual: number; diff: number };
   verdict: string;
 };
 
@@ -52,7 +54,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
  *  balances on its own, so the sum balances too (Σ differences = Σ kept − Σ goals). */
 export function sumReportInputs(inputs: MonthReportInput[]): MonthReportInput {
   const plan = { moneyIn: 0, bills: 0, discretionary: 0, savingsGoal: 0, estimateAdjustment: 0, paycheckSavings: 0 };
-  const actual = { income: 0, reimbursed: 0, discretionary: 0, bills: 0, offBudget: 0, funds: 0 };
+  const actual = { income: 0, reimbursed: 0, discretionary: 0, bills: 0, offBudget: 0, funds: 0, paycheckSavings: 0 };
   for (const i of inputs) {
     for (const k of Object.keys(plan) as (keyof typeof plan)[]) plan[k] = r2(plan[k] + i.plan[k]);
     for (const k of Object.keys(actual) as (keyof typeof actual)[]) actual[k] = r2(actual[k] + i.actual[k]);
@@ -105,9 +107,11 @@ export function buildMonthReport(
   );
   const diff = r2(keptActual - plan.savingsGoal);
   const saved = {
-    paycheck: r2(plan.paycheckSavings),
+    paycheckPlanned: r2(plan.paycheckSavings),
+    paycheck: r2(actual.paycheckSavings),
     goal: r2(plan.savingsGoal + plan.paycheckSavings),
-    actual: r2(keptActual + plan.paycheckSavings),
+    actual: r2(keptActual + actual.paycheckSavings),
+    diff: r2(keptActual + actual.paycheckSavings - plan.savingsGoal - plan.paycheckSavings),
   };
 
   const worst = lines.reduce<ReportLine | null>((w, l) => (l.effect < (w?.effect ?? -0.5) ? l : w), null);

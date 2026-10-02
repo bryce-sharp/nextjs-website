@@ -39,7 +39,8 @@ function PhonePlan({ children }: { children: React.ReactNode }) {
 // save too (401k, HSA), they add on top and the bottom row is the whole goal.
 export default function MonthReport({ report, inProgress }: { report: Report; inProgress?: boolean }) {
   const { kept, saved } = report;
-  const withPaycheck = saved.paycheck > 0 && kept.goal > 0;
+  const withPaycheck = saved.paycheckPlanned > 0 && kept.goal > 0;
+  const toCome = saved.paycheckPlanned - saved.paycheck;
   const gap = (diff: number) => `${formatMoney(Math.abs(diff))} ${diff < 0 ? "short" : "ahead"}`;
   return (
     <Box>
@@ -106,13 +107,14 @@ export default function MonthReport({ report, inProgress }: { report: Report; in
                     </Typography>
                   </TableCell>
                   <TableCell align="right" sx={{ ...num, ...plannedCol }}>
-                    {formatMoney(saved.paycheck)}
+                    {formatMoney(saved.paycheckPlanned)}
                   </TableCell>
                   <TableCell align="right" sx={num}>
                     {formatMoney(saved.paycheck)}
+                    <PhonePlan>of {formatMoney(saved.paycheckPlanned)}</PhonePlan>
                   </TableCell>
                   <TableCell align="right" sx={{ ...num, color: "text.secondary" }}>
-                    on plan
+                    {toCome > 0.005 ? `${formatMoney(toCome)} to come` : "on plan"}
                   </TableCell>
                 </TableRow>
                 <TableRow sx={{ "& td": { borderBottom: 0, fontWeight: 700 } }}>
@@ -124,8 +126,8 @@ export default function MonthReport({ report, inProgress }: { report: Report; in
                     {formatMoney(saved.actual)}
                     <PhonePlan>goal {formatMoney(saved.goal)}</PhonePlan>
                   </TableCell>
-                  <TableCell align="right" sx={{ ...num, color: kept.diff < -0.005 ? "warning.main" : undefined }}>
-                    {gap(kept.diff)}
+                  <TableCell align="right" sx={{ ...num, color: saved.diff < -0.005 ? "warning.main" : undefined }}>
+                    {gap(saved.diff)}
                   </TableCell>
                 </TableRow>
               </>

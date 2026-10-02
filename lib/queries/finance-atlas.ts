@@ -123,6 +123,9 @@ export type AtlasView = {
     savingsFromPaycheck: number;
     /** The deductions behind savingsFromPaycheck, e.g. ["401K", "HSA"]. */
     paycheckSavingsNames: string[];
+    /** Per person: pay cadence and the savings each paycheck carries, so a
+     *  month in progress can count only the paydays that have passed. */
+    paycheckSavingsChecks: { payFrequency: string; perCheck: number }[];
     /** The whole goal: take-home part + paycheck savings. Savings means money
      *  in any account you own, so a 401k contribution counts. */
     savingsGoalTotal: number;
@@ -223,6 +226,7 @@ export async function getAtlasViewForGroup(
   const people: AtlasProfileView[] = [];
   let paycheckSavingsC = 0;
   const paycheckSavingsNames = new Set<string>();
+  const paycheckSavingsChecks: { payFrequency: string; perCheck: number }[] = [];
   for (const p of groupProfiles) {
     // Latest-starting effective plan wins (overlaps happen mid-transition).
     const plan = effectiveAt(
@@ -241,12 +245,17 @@ export async function getAtlasViewForGroup(
     const perCheckC = (d: IncomeDeduction): number => deductionPerCheckC(d, grossC);
 
     // Deductions that land in an account you own are savings already.
+    let savedPerCheckC = 0;
     for (const d of deductions) {
       const acct = d.depositAccountId != null ? accountById.get(d.depositAccountId) : null;
       if (acct && isSavingsKind(acct.kind)) {
-        paycheckSavingsC += (perCheckC(d) * ppy) / 12;
+        savedPerCheckC += perCheckC(d);
         paycheckSavingsNames.add(d.name);
       }
+    }
+    if (savedPerCheckC > 0) {
+      paycheckSavingsC += (savedPerCheckC * ppy) / 12;
+      paycheckSavingsChecks.push({ payFrequency: plan.payFrequency, perCheck: dollars(savedPerCheckC) });
     }
 
     const payrollC = deductions
@@ -427,6 +436,7 @@ export async function getAtlasViewForGroup(
       savingsGoal: dollars(savingsGoalC),
       savingsFromPaycheck: dollars(paycheckSavingsC),
       paycheckSavingsNames: [...paycheckSavingsNames],
+      paycheckSavingsChecks,
       savingsGoalTotal: goal ? dollars(savingsGoalC + Math.round(paycheckSavingsC)) : 0,
       savingsGoalSince: goal?.startMonth ?? null,
       discretionLeft: dollars(discretionC),
