@@ -21,6 +21,10 @@ export type SessionPayload = {
   // an account between groups requires that person to sign in again.
   groupId: number;
   exp: number; // epoch seconds
+  // When this device signed in (epoch seconds). Kept across rolling renewals,
+  // so a password change can kill every session signed before it. Missing on
+  // tokens from before resets existed (treated as 0).
+  iat?: number;
 };
 
 const enc = new TextEncoder();
@@ -115,5 +119,10 @@ export async function readSessionToken(
   if (!p || typeof p.accountId !== "number" || typeof p.groupId !== "number") {
     return null;
   }
-  return { accountId: p.accountId, groupId: p.groupId, exp: p.exp };
+  return {
+    accountId: p.accountId,
+    groupId: p.groupId,
+    exp: p.exp,
+    iat: typeof p.iat === "number" ? p.iat : undefined,
+  };
 }

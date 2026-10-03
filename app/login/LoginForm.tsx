@@ -25,7 +25,7 @@ function safePath(from: string): string {
 // The global sign-in form: passkey first (one Face ID tap), password as the
 // universal fallback. autoComplete hints matter on the password path — they're
 // what lets iCloud Keychain offer the saved login behind a Face ID prompt.
-export default function LoginForm({ from }: { from: string }) {
+export default function LoginForm({ from, notice }: { from: string; notice?: string }) {
   const [state, formAction] = React.useActionState(loginAction, null);
 
   const [passkeyBusy, setPasskeyBusy] = React.useState(false);
@@ -39,10 +39,10 @@ export default function LoginForm({ from }: { from: string }) {
     try {
       const options = await startPasskeyLogin();
       const response = await startAuthentication({ optionsJSON: options });
-      const result = await finishPasskeyLogin(response);
+      const result = await finishPasskeyLogin(response, from);
       if (result.ok) {
         // Full navigation (not router.push) so every layout re-reads the fresh session.
-        window.location.assign(safePath(from));
+        window.location.assign(safePath(result.next ?? from));
         return;
       }
       setPasskeyError(result.error);
@@ -70,6 +70,7 @@ export default function LoginForm({ from }: { from: string }) {
           <Typography variant="body2" color="text.secondary">
             This hub is private — sign in to continue.
           </Typography>
+          {notice ? <Alert severity="success">{notice}</Alert> : null}
 
           {supported ? (
             <>

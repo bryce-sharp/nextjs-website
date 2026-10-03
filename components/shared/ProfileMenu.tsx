@@ -213,11 +213,11 @@ export default function ProfileMenu({
           </ListItemIcon>
           <ListItemText>Manage group…</ListItemText>
         </MenuItem>
-        <MenuItem component={Link} href="/passkeys" onClick={closeMenu}>
+        <MenuItem component={Link} href="/group#sign-in" onClick={closeMenu}>
           <ListItemIcon>
             <FingerprintIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>Passkeys…</ListItemText>
+          <ListItemText>Password & passkeys…</ListItemText>
         </MenuItem>
         <MenuItem
           onClick={() => {

@@ -318,6 +318,10 @@ export const accounts = pgTable("accounts", {
   profileId: integer("profile_id")
     .unique()
     .references(() => profiles.id, { onDelete: "set null" }),
+  // When the password last changed (self-service or a reset link). Sessions
+  // signed before it are dead (lib/session liveness), so a reset signs every
+  // other device out. Null = never changed since the account was made.
+  passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
 
@@ -349,6 +353,35 @@ export const passkeys = pgTable(
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   },
   (t) => [index("idx_passkeys_account").on(t.accountId)],
+);
+
+// ── Password resets ───────────────────────────────────────────────────────────
+// A one-time link (/reset/<token>) that lets a person pick a new password on
+// their own device. Minted by the group OWNER for another member at /group, or
+// by the site admin with scripts/reset-link.mjs (createdByAccountId null) —
+// the owner's own way back when they have no passkey. Only the token's sha256
+// is stored, so reading this table never yields a working link. Single use,
+// 24-hour expiry, revocable; minting a new one revokes the account's older
+// live links. Rows stay as the audit trail the member sees on /group, and
+// noticeSeenAt drives the one-time "your password was reset" notice.
+export const passwordResets = pgTable(
+  "password_resets",
+  {
+    id: serial("id").primaryKey(),
+    accountId: integer("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    createdByAccountId: integer("created_by_account_id").references(() => accounts.id, {
+      onDelete: "set null",
+    }),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    noticeSeenAt: timestamp("notice_seen_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("idx_password_resets_account").on(t.accountId)],
 );
 
 // ─────────────────────────────────────────────────────────────────────────────

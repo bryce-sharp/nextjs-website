@@ -23,7 +23,8 @@ import {
 // Reachable while signed out: the login page itself, everything a PWA install /
 // browser tab needs before auth (manifest + icons — see the note in
 // app/manifest.ts), and the Phase E doors: /join/<token> (an invite IS the
-// credential — the visitor doesn't have a login yet) and /signout (where dead
+// credential — the visitor doesn't have a login yet), /reset/<token> (a reset
+// link is the credential for someone locked out), and /signout (where dead
 // sessions go to clear their cookie). Everything else redirects.
 const PUBLIC_PATHS = new Set([
   "/login",
@@ -40,6 +41,7 @@ function isPublic(pathname: string): boolean {
   return (
     PUBLIC_PATHS.has(pathname) ||
     pathname.startsWith("/join/") ||
+    pathname.startsWith("/reset/") ||
     // Finance machine endpoints — token-authed themselves (Bearer fin_…), so
     // the session gate must let them through. Without this the Shortcut's POST
     // 307s to /login and the alert is silently lost.
@@ -87,6 +89,7 @@ export async function proxy(req: NextRequest) {
         accountId: session.accountId,
         groupId: session.groupId,
         exp: now + SESSION_TTL_SECONDS,
+        iat: session.iat, // the sign-in time survives renewal, or a reset could be outlived
       },
       secret,
     );

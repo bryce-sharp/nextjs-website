@@ -19,6 +19,7 @@ import { createSession, requireSession } from "@/lib/session";
 import { setActiveProfileCookie } from "@/lib/profile";
 import { relyingParty, storeChallenge, takeChallenge } from "@/lib/webauthn";
 import { listPasskeys, getPasskey } from "@/lib/queries/passkeys";
+import { afterSignIn } from "@/lib/password-reset";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PASSKEYS (WebAuthn) — each flow is a two-action dance: start() makes the
@@ -30,7 +31,7 @@ import { listPasskeys, getPasskey } from "@/lib/queries/passkeys";
 // it returns tells us which account is signing in.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type PasskeyResult = { ok: true } | { ok: false; error: string };
+export type PasskeyResult = { ok: true; next?: string } | { ok: false; error: string };
 
 // ── Registration (signed in: add a passkey for YOUR account) ──────────────────
 export async function startPasskeyRegistration(): Promise<PublicKeyCredentialCreationOptionsJSON> {
@@ -125,7 +126,7 @@ export async function finishPasskeyRegistration(
       },
     });
 
-  revalidatePath("/passkeys");
+  revalidatePath("/group");
   return { ok: true };
 }
 
@@ -143,6 +144,7 @@ export async function startPasskeyLogin(): Promise<PublicKeyCredentialRequestOpt
 
 export async function finishPasskeyLogin(
   response: AuthenticationResponseJSON,
+  from = "",
 ): Promise<PasskeyResult> {
   const pending = await takeChallenge("authentication");
   if (!pending) return { ok: false, error: "Sign-in expired — try again." };
@@ -188,7 +190,7 @@ export async function finishPasskeyLogin(
   await createSession(passkey.accountId, account.groupId);
   // Signing in as a claimed account means "I am that person" — switch to them.
   if (account.profileId !== null) await setActiveProfileCookie(account.profileId);
-  return { ok: true };
+  return { ok: true, next: await afterSignIn(passkey.accountId, from, "passkey") };
 }
 
 // ── Management ────────────────────────────────────────────────────────────────
@@ -198,5 +200,5 @@ export async function deletePasskey(id: string): Promise<void> {
   await db
     .delete(passkeys)
     .where(and(eq(passkeys.id, id), eq(passkeys.accountId, accountId)));
-  revalidatePath("/passkeys");
+  revalidatePath("/group");
 }

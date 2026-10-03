@@ -12,11 +12,16 @@ export const metadata: Metadata = { title: "Sign in" };
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string }>;
+  searchParams: Promise<{ from?: string; reset?: string }>;
 }) {
   // Already signed in? (e.g. a second tab) — nothing to do here.
   if ((await getSession()) !== null) redirect("/");
 
-  const { from } = await searchParams;
-  return <LoginForm from={from ?? ""} />;
+  const { from, reset } = await searchParams;
+  return (
+    <LoginForm
+      from={from ?? ""}
+      notice={reset ? "Your password is updated. Sign in with the new one." : undefined}
+    />
+  );
 }
