@@ -15,7 +15,7 @@ import TokenManager from "@/components/finance/TokenManager";
 export const metadata = { title: "Finance · Connections" };
 
 // Finance settings: the API tokens the phone automations use (ingest shortcut,
-// widget reader). Household-shared but only editable in edit mode.
+// widget reader). Household-shared.
 export default async function FinanceSettingsPage() {
   if ((await getSession()) === null) redirect("/login");
   const editor = await isEditor();
@@ -62,7 +62,7 @@ export default async function FinanceSettingsPage() {
             .map((a) => ({ id: a.id, name: a.name }))}
         />
       ) : (
-        <Alert severity="info">Turn on edit mode to manage connections.</Alert>
+        <Alert severity="info">Sign in to manage connections.</Alert>
       )}
     </Container>
   );

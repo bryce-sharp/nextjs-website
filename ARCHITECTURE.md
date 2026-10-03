@@ -29,7 +29,7 @@ app/
   login/                the global sign-in page (the only page reachable signed out)
   group/                the household: logins, people & claims (Phase E: invites)
   passkeys/             per-device passkey management (add/remove)
-  unlock/               "you're in view mode" → one-click edit-mode toggle
+  unlock/               retired (edit mode is gone); redirects home
   actions/*.ts          "use server" mutations, one file per domain (session, auth, vehicles, …)
   garage/**             the Garage app (its own layout/error + CRUD routes)
   workout/**            the Workout app
@@ -145,12 +145,11 @@ Host, so localhost and production each keep their own passkeys (WebAuthn binds
 credentials per-domain by design). The password is always the fallback — losing
 every passkey never locks anyone out.
 
-**Layer 2 — edit mode + the claim.** [`lib/auth.ts`](lib/auth.ts): behind the
-login, viewing is open to the household; *writes* need two things.
-**Edit mode** is a passwordless per-device toggle (profile menu → *Enter edit
-mode*, `hub_edit_mode` cookie) that starts OFF so browsing never edits by
-accident — it's a preference, not a permission (every guard also checks the
-session). **The claim** is the protection: an account may claim a profile
+**Layer 2 — the claim.** [`lib/auth.ts`](lib/auth.ts): behind the login, the
+household can view and edit; signed in is enough. (A per-device "edit mode"
+toggle used to sit in front of writes; it granted nothing, since every guard
+also checks the session and the claim, so it was removed.) **The claim** is the
+protection: an account may claim a profile
 (`accounts.profileId`, self-service at `/group`), and a claimed profile's stuff
 is editable **only by its claiming account**; an unclaimed profile (a kid) stays
 open to the whole group. Signing in as a claimed account auto-switches the

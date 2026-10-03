@@ -27,8 +27,8 @@ const COMMON_ZONES = [
 
 /**
  * The household timezone — what pins the finance app's "today" (budget, widget,
- * incoming texts) so it rolls over at your midnight, not UTC's. Read-only unless
- * in edit mode; offers the browser-detected zone as a one-tap default.
+ * incoming texts) so it rolls over at your midnight, not UTC's. Offers the
+ * browser-detected zone as a one-tap default.
  */
 export default function TimezoneSetting({
   timezone,

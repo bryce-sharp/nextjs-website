@@ -1,8 +1,7 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Container from "@mui/material/Container";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
-import { isEditor } from "@/lib/auth";
 import { getVehicle } from "@/lib/queries/vehicles";
 import { addJournal } from "@/app/actions/journal";
 import JournalForm from "@/components/garage/JournalForm";
@@ -12,7 +11,6 @@ export default async function NewJournalPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!(await isEditor())) redirect("/unlock");
 
   const { id: idParam } = await params;
   const id = Number(idParam);

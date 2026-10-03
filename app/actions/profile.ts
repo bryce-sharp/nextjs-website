@@ -37,12 +37,7 @@ async function otherActiveProfile(exceptId: number) {
 // Switching who we are is harmless (it only changes whose data you view), so it's
 // open to anyone. Adding a person is a mutation — editor-gated.
 
-/**
- * Make `id` the active profile and refresh every server-rendered page. Switching
- * also clears edit mode (locks any unlocked password-protected profile) so it
- * doesn't linger once you've stepped into someone else — passwordless profiles
- * stay open.
- */
+/** Make `id` the active profile and refresh every server-rendered page. */
 export async function switchProfile(id: number): Promise<void> {
   // Only switch to one of OUR (active) profiles — a foreign or archived id is a
   // no-op. getActiveProfile would neutralize a bad cookie anyway; this keeps it
@@ -177,7 +172,7 @@ export async function deactivateProfile(id: number): Promise<void> {
 }
 
 /**
- * Restore an archived profile. Gated by general edit mode (not requireEditorFor):
+ * Restore an archived profile. Gated by requireEditor (not requireEditorFor):
  * an archived profile can't be made active, so it can't be unlocked — requiring
  * its own unlock would strand it archived forever.
  */

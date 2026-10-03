@@ -1,15 +1,12 @@
-import { redirect } from "next/navigation";
 import Container from "@mui/material/Container";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
-import { isEditor } from "@/lib/auth";
 import { listProfiles } from "@/lib/queries/profiles";
 import { getActiveProfile } from "@/lib/profile";
 import { addVehicle } from "@/app/actions/vehicles";
 import VehicleForm from "@/components/garage/VehicleForm";
 
 export default async function NewVehiclePage() {
-  if (!(await isEditor())) redirect("/unlock");
 
   const [profiles, active] = await Promise.all([
     listProfiles(),

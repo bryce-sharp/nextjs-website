@@ -15,7 +15,7 @@ function weeksBetween(startISO: string, endISO: string): number {
 
 // Weigh-ins & goals are OWNED by a profile (Bryce's ≠ Lauren's), so every write
 // goes through requireEditorFor(profileId) — the same owner-gate workouts use.
-// Viewing the dashboard is always open; only logging/editing needs edit mode.
+// Viewing and logging are open to the household; a claimed person's data is theirs alone.
 
 const str = (formData: FormData, k: string) => {
   const v = String(formData.get(k) ?? "").trim();

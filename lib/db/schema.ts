@@ -258,7 +258,7 @@ export const groups = pgTable("groups", {
   isDemo: boolean("is_demo").notNull().default(false),
   // THE OWNER (Phase E): the one account that manages membership — mints/revokes
   // invite links and removes logins (/group). Deliberately thin: owning grants
-  // nothing else (data writes still go through edit mode + claims). Circular FK
+  // nothing else (data writes still go through the claims). Circular FK
   // with accounts.group_id, hence the lazy reference; SET NULL so deleting the
   // owner account orphans the role rather than the group (recoverable by hand).
   // Null = no owner (the demo group; legacy groups until backfilled).

@@ -1,20 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// AUTH LAYER 2 — edit mode + "claim is the lock" (behind the global login).
+// AUTH LAYER 2 — "claim is the lock" (behind the global login).
 //
 // The hub's real security boundary is the login + group tenancy (lib/session,
-// proxy.ts, lib/queries). Behind it, WRITES are gated by two things:
+// proxy.ts, lib/queries). Behind it, being signed in is enough to edit, with
+// one exception — THE CLAIM: an account may claim a profile (accounts.profileId,
+// managed at /group). A CLAIMED profile's stuff is editable only by its
+// claiming account; an UNCLAIMED profile (a kid) is open to the whole group.
 //
-//   1. EDIT MODE — a passwordless per-device toggle (the profile menu's
-//      "Enter edit mode"). Starts OFF so browsing never edits by accident; a
-//      plain preference cookie, deliberately unsigned — it grants nothing by
-//      itself, every guard also checks the session and the claim.
-//   2. THE CLAIM — an account may claim a profile (accounts.profileId, managed
-//      at /group). A CLAIMED profile's stuff is editable only by its claiming
-//      account; an UNCLAIMED profile (a kid) is open to the whole group.
+// (There used to be a per-device "edit mode" toggle in front of this. It
+// granted nothing — every guard also checks the session and the claim — and it
+// mostly got in the way, so it is gone. isEditor/requireEditor stay as the one
+// seam where a future view-only role would plug in.)
 //
-// Phase D retired the per-profile edit passwords: the login already proves who
-// you are, so the claim replaces the password. hashPassword/verifyPassword
-// remain here for ACCOUNT passwords (login + scripts/create-account.mjs).
+// hashPassword/verifyPassword are for ACCOUNT passwords (login, resets, scripts).
 //
 // Two gates, same names as always (every write action calls one):
 //   • requireEditor()          — communal writes (catalog, shared cars, …).
@@ -22,7 +20,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import "server-only";
-import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
@@ -49,33 +46,13 @@ export function verifyPassword(plain: string, stored: string | null): boolean {
 }
 
 // ── Edit mode (per-device toggle) ─────────────────────────────────────────────
-const EDIT_MODE_COOKIE = "hub_edit_mode";
-const EDIT_MODE_MAX_AGE = 60 * 60 * 24 * 30; // re-flip once a month, tops
-
-/** Is this device in edit mode? (Signed-out is never editing.) */
+/** Can this visitor edit? Anyone signed in (claims still guard owned data). */
 export async function isEditMode(): Promise<boolean> {
-  if ((await getSession()) === null) return false;
-  return (await cookies()).get(EDIT_MODE_COOKIE)?.value === "1";
+  return (await getSession()) !== null;
 }
 
-// Back-compat alias: existing pages read isEditor() to mean "am I editing now".
+// The name pages use: "may I show edit controls".
 export const isEditor = isEditMode;
-
-/** Flip edit mode on (call from a Server Action). */
-export async function enterEditMode(): Promise<void> {
-  (await cookies()).set(EDIT_MODE_COOKIE, "1", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: EDIT_MODE_MAX_AGE,
-  });
-}
-
-/** Flip edit mode off. */
-export async function exitEditMode(): Promise<void> {
-  (await cookies()).delete(EDIT_MODE_COOKIE);
-}
 
 // ── Claims ────────────────────────────────────────────────────────────────────
 /** The account id claiming this profile, or null if unclaimed. */
@@ -129,7 +106,7 @@ export async function isOwner(): Promise<boolean> {
  * edit mode. Returns the session so callers don't re-fetch it.
  */
 export async function requireOwner(): Promise<Session> {
-  await requireEditor(); // signed in + edit mode (admin actions are still writes)
+  await requireEditor(); // signed in (admin actions are still writes)
   if (!(await isOwner())) {
     throw new Error("Only the group owner can manage members and invites.");
   }
@@ -137,15 +114,12 @@ export async function requireOwner(): Promise<Session> {
 }
 
 // ── Guards (call from Server Actions) ─────────────────────────────────────────
-/** Guard for COMMUNAL writes (catalog, shared cars): signed in + edit mode. */
+/** Guard for COMMUNAL writes (catalog, shared cars): signed in. */
 export async function requireEditor(): Promise<void> {
   await requireSession();
-  if (!(await isEditMode())) {
-    throw new Error("Not in edit mode — turn on editing first.");
-  }
 }
 
-/** Guard for OWNED writes: unclaimed-or-yours, in edit mode. */
+/** Guard for OWNED writes: unclaimed-or-yours. */
 export async function requireEditorFor(
   ownerId: number | null | undefined,
 ): Promise<void> {

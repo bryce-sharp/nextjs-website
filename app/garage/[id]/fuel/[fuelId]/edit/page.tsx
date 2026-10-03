@@ -1,8 +1,7 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Container from "@mui/material/Container";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
-import { isEditor } from "@/lib/auth";
 import { getVehicle } from "@/lib/queries/vehicles";
 import { getFuelLog } from "@/lib/queries/fuel";
 import { updateFuel } from "@/app/actions/fuel";
@@ -13,7 +12,6 @@ export default async function EditFuelPage({
 }: {
   params: Promise<{ id: string; fuelId: string }>;
 }) {
-  if (!(await isEditor())) redirect("/unlock");
 
   const { id: idParam, fuelId: fuelParam } = await params;
   const id = Number(idParam);

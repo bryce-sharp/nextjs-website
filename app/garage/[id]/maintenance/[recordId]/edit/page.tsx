@@ -1,8 +1,7 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Container from "@mui/material/Container";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
-import { isEditor } from "@/lib/auth";
 import { getVehicle } from "@/lib/queries/vehicles";
 import {
   getMaintenanceRecord,
@@ -16,7 +15,6 @@ export default async function EditMaintenancePage({
 }: {
   params: Promise<{ id: string; recordId: string }>;
 }) {
-  if (!(await isEditor())) redirect("/unlock");
 
   const { id: idParam, recordId: recParam } = await params;
   const id = Number(idParam);
