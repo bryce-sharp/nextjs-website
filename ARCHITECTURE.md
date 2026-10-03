@@ -121,8 +121,21 @@ order — attachment rows (polymorphic, no FK), then workouts (`ON DELETE
 RESTRICT` behind profiles would abort the cascade), then the group row, which
 cascades everything else.
 
-**Passkeys (WebAuthn / Face ID)** ride on top of the login: manage at
-`/passkeys` (add this device, remove lost ones), sign in usernameless from
+**Passwords and resets.** Anyone signed in can change their password in
+`/group`'s "Your sign-in" section; within 15 minutes of signing in (Face ID
+counts) the current password is not needed. A locked-out member gets a
+one-time **reset link** (`/reset/<token>`) from the owner's button on their
+card at `/group`: single use, 24-hour expiry, cancellable, only its sha256
+stored (`password_resets`). The member picks the new password on their own
+device, every other session of that login is signed out
+(`accounts.passwordChangedAt` vs the session's sign-in time, checked in
+`requireSession`), and they see who sent the link at their next sign-in. The
+owner cannot be sent a link in-app; their way back is a passkey, or
+`node scripts/reset-link.mjs <username>` (prints a link, no password in the
+terminal).
+
+**Passkeys (WebAuthn / Face ID)** ride on top of the login: manage in
+`/group`'s "Your sign-in" section (add this device, remove lost ones), sign in usernameless from
 `/login` — the platform's discoverable credential identifies the account.
 `@simplewebauthn/{server,browser}` do the heavy lifting; flows are two server
 actions each ([`app/actions/passkeys.ts`](app/actions/passkeys.ts)) with the

@@ -8,6 +8,7 @@ import { hashPassword, verifyPassword } from "@/lib/auth";
 import { createSession, destroySession } from "@/lib/session";
 import { setActiveProfileCookie } from "@/lib/profile";
 import { reseedDemoGroup } from "@/lib/demo";
+import { afterSignIn } from "@/lib/password-reset";
 
 // The global login/logout. Accounts are created only via
 // scripts/create-account.mjs (no signup UI by design — see the schema notes).
@@ -58,8 +59,9 @@ export async function loginAction(
   await createSession(account.id, account.groupId);
   // Signing in as a claimed account means "I am that person" — switch to them.
   if (account.profileId !== null) await setActiveProfileCookie(account.profileId);
-  // Only same-site paths — never a full URL (open-redirect guard).
-  redirect(from.startsWith("/") && !from.startsWith("//") ? from : "/");
+  // Only same-site paths — never a full URL (open-redirect guard). A pending
+  // reset notice or the add-Face-ID nudge comes first.
+  redirect(await afterSignIn(account.id, from, "password"));
 }
 
 /** Sign out: drop the session cookie and land on the login page. */

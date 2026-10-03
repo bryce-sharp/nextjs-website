@@ -29,7 +29,7 @@ import {
   type SessionPayload,
 } from "@/lib/session-core";
 
-export type Session = Pick<SessionPayload, "accountId" | "groupId">;
+export type Session = Pick<SessionPayload, "accountId" | "groupId" | "iat">;
 
 function secret(): string {
   const s = process.env.COOKIE_SECRET;
@@ -42,8 +42,9 @@ export async function createSession(
   accountId: number,
   groupId: number,
 ): Promise<void> {
-  const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
-  const token = await mintSessionToken({ accountId, groupId, exp }, secret());
+  const iat = Math.floor(Date.now() / 1000);
+  const exp = iat + SESSION_TTL_SECONDS;
+  const token = await mintSessionToken({ accountId, groupId, exp, iat }, secret());
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production", // allow http on localhost
@@ -63,23 +64,28 @@ export async function getSession(): Promise<Session | null> {
   if (!process.env.COOKIE_SECRET) return null;
   const raw = (await cookies()).get(SESSION_COOKIE)?.value;
   const payload = await readSessionToken(raw, secret());
-  return payload ? { accountId: payload.accountId, groupId: payload.groupId } : null;
+  return payload
+    ? { accountId: payload.accountId, groupId: payload.groupId, iat: payload.iat }
+    : null;
 }
 
 // LIVENESS (Phase E): the cookie alone can outlive the account — member removal
 // deletes the row, but the removed device still holds a valid-signed token for
 // up to 90 days. So the data layer double-checks the account still exists (and
-// still belongs to the token's group). cache() memoizes per request: one tiny
+// still belongs to the token's group), and that the device signed in after the
+// password last changed — a reset signs every other device out. cache() memoizes per request: one tiny
 // SELECT no matter how many queries a page runs. The proxy stays cookie-only on
 // purpose — it's the convenience redirect, not the boundary.
 const accountAlive = cache(
-  async (accountId: number, groupId: number): Promise<boolean> => {
+  async (accountId: number, groupId: number, iat: number | undefined): Promise<boolean> => {
     const [row] = await db
-      .select({ groupId: accounts.groupId })
+      .select({ groupId: accounts.groupId, passwordChangedAt: accounts.passwordChangedAt })
       .from(accounts)
       .where(eq(accounts.id, accountId))
       .limit(1);
-    return row != null && row.groupId === groupId;
+    if (row == null || row.groupId !== groupId) return false;
+    if (row.passwordChangedAt == null) return true;
+    return (iat ?? 0) >= Math.floor(row.passwordChangedAt.getTime() / 1000);
   },
 );
 
@@ -87,7 +93,7 @@ const accountAlive = cache(
 export async function requireSession(): Promise<Session> {
   const session = await getSession();
   if (!session) throw new Error("Not signed in.");
-  if (!(await accountAlive(session.accountId, session.groupId))) {
+  if (!(await accountAlive(session.accountId, session.groupId, session.iat))) {
     // Removed member (or a group move): the token is dead. Send them through
     // /signout, which clears the cookie and lands on /login — redirecting to
     // /login directly would loop (the proxy bounces signed-cookie holders off it).
