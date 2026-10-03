@@ -12,7 +12,7 @@ import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import SubmitButton from "@/components/shared/SubmitButton";
 import { renameGroupAction } from "@/app/actions/group";
 
-/** The /group heading: household name with an inline rename (edit mode only). */
+/** The /group heading: household name with an inline rename. */
 export default function GroupNameEditor({
   name,
   canEdit,

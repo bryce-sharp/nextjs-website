@@ -1,8 +1,7 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Container from "@mui/material/Container";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
-import { isEditor } from "@/lib/auth";
 import { getVehicle } from "@/lib/queries/vehicles";
 import { getWishlistItem } from "@/lib/queries/wishlist";
 import { updateWishlistItem } from "@/app/actions/wishlist";
@@ -13,7 +12,6 @@ export default async function EditWishlistPage({
 }: {
   params: Promise<{ id: string; itemId: string }>;
 }) {
-  if (!(await isEditor())) redirect("/unlock");
 
   const { id: idParam, itemId: itemParam } = await params;
   const id = Number(idParam);

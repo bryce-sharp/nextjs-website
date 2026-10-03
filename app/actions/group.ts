@@ -165,7 +165,7 @@ export async function removeMemberAction(
 /**
  * Leave the hub: delete YOUR OWN login (and its passkeys, via cascade). The
  * person and their data stay — leaving is the mirror of being removed. Self-
- * service like claims (no edit mode: it's your login, the dialog confirms).
+ * service like claims (it's your login; the dialog confirms).
  * The owner can't leave — transfer ownership first, or delete the hub.
  */
 export async function leaveHubAction(_formData: FormData): Promise<void> {

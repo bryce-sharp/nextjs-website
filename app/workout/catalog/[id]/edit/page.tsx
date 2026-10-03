@@ -1,8 +1,7 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Container from "@mui/material/Container";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
-import { isEditor } from "@/lib/auth";
 import { getExercise } from "@/lib/queries/workout";
 import { updateExercise } from "@/app/actions/workout";
 import ExerciseForm from "@/components/workout/ExerciseForm";
@@ -14,7 +13,6 @@ export default async function EditExercisePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!(await isEditor())) redirect("/unlock");
 
   const { id: idParam } = await params;
   const id = Number(idParam);

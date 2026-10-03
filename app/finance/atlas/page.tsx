@@ -218,7 +218,7 @@ export default async function AtlasPage({
       </Box>
       {people.length === 0 && planless.length === 0 ? (
         <Alert severity="info" sx={{ mb: 3 }}>
-          No income set up yet{editor ? " — enter edit mode to add it." : "."}
+          No income set up yet. Add a person&apos;s pay to get started.
         </Alert>
       ) : null}
 

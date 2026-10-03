@@ -51,7 +51,7 @@ function initial(name: string) {
 // which is the whole protection model since Phase D. Each person's card shows
 // their login, so the owner's Reset password and Remove login sit right on it;
 // logins tied to no person get a short list of their own. Claiming is
-// self-service; people management (add/edit/rename) needs edit mode. Your own
+// self-service; anyone signed in can add/edit/rename people. Your own
 // password and passkeys live at the bottom (#sign-in).
 export default async function GroupPage({
   searchParams,
@@ -71,8 +71,7 @@ export default async function GroupPage({
   ]);
   const canManage = await Promise.all(all.map((p) => canEditProfile(p.id)));
 
-  // Membership controls (invites + removal) are the OWNER's, behind edit mode
-  // like every other write. Invite links need an absolute URL — derive the
+  // Membership controls (invites, removal, reset links) are the OWNER's. Invite links need an absolute URL — derive the
   // origin from Host headers (same idiom as lib/webauthn), never an env var.
   const viewerIsOwner =
     group?.ownerAccountId != null && group.ownerAccountId === session.accountId;
@@ -153,7 +152,7 @@ export default async function GroupPage({
             const archived = !!p.archivedAt;
             const claim = claimOf(p.id);
             const mine = claim?.id === session.accountId;
-            // Archived rows stay manageable in edit mode so they can be
+            // Archived rows stay manageable for any editor so they can be
             // reactivated; live rows need canEditProfile (unclaimed or yours).
             const manageable = canManage[i] || (archived && canEdit);
             const heirs = activeProfiles

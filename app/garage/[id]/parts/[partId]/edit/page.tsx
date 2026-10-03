@@ -1,8 +1,7 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Container from "@mui/material/Container";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
-import { isEditor } from "@/lib/auth";
 import { getVehicle } from "@/lib/queries/vehicles";
 import { getPart } from "@/lib/queries/parts";
 import { updatePart } from "@/app/actions/parts";
@@ -13,7 +12,6 @@ export default async function EditPartPage({
 }: {
   params: Promise<{ id: string; partId: string }>;
 }) {
-  if (!(await isEditor())) redirect("/unlock");
 
   const { id: idParam, partId: partParam } = await params;
   const id = Number(idParam);

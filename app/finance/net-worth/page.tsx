@@ -29,7 +29,7 @@ const RANGES: NetWorthRange[] = ["year", "12mo", "all"];
 // growth, where the money lives, and what the pace and the cash cushion mean
 // going forward. It only tracks money up and down; the savings goal lives
 // with the budget. Household data: everyone in the
-// group sees it; edit mode gates the writes.
+// group sees and edits it.
 export default async function NetWorthPage({
   searchParams,
 }: {

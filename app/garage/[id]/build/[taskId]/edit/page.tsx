@@ -1,8 +1,7 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Container from "@mui/material/Container";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
-import { isEditor } from "@/lib/auth";
 import { getVehicle } from "@/lib/queries/vehicles";
 import { getBuildTask } from "@/lib/queries/build";
 import { updateBuildTask } from "@/app/actions/build";
@@ -13,7 +12,6 @@ export default async function EditBuildTaskPage({
 }: {
   params: Promise<{ id: string; taskId: string }>;
 }) {
-  if (!(await isEditor())) redirect("/unlock");
 
   const { id: idParam, taskId: taskParam } = await params;
   const id = Number(idParam);

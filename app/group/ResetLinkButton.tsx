@@ -42,7 +42,7 @@ export default function ResetLinkButton({
         router.refresh();
       } else setError(result.error);
     } catch {
-      setError("Could not create a link. Make sure edit mode is on.");
+      setError("Could not create a link. Try again.");
     } finally {
       setBusy(false);
     }

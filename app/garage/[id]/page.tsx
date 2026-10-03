@@ -45,7 +45,7 @@ export default async function VehiclePage({
 
   const vehicle = await getVehicle(id);
   if (!vehicle) notFound();
-  // Edit affordances follow ownership: shared cars = anyone in edit mode; private
+  // Edit affordances follow ownership: shared cars = anyone signed in; private
   // cars = only the owner (unlocked). The write actions enforce the same rule.
   const editor = await canEditVehicle(vehicle);
 

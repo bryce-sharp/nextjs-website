@@ -1,8 +1,7 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Container from "@mui/material/Container";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
-import { isEditor } from "@/lib/auth";
 import { getVehicle } from "@/lib/queries/vehicles";
 import { addWishlistItem } from "@/app/actions/wishlist";
 import WishlistForm from "@/components/garage/WishlistForm";
@@ -12,7 +11,6 @@ export default async function NewWishlistPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!(await isEditor())) redirect("/unlock");
 
   const { id: idParam } = await params;
   const id = Number(idParam);

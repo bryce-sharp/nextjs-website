@@ -18,13 +18,11 @@ import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import DarkModeIcon from "@mui/icons-material/DarkModeOutlined";
 import LightModeIcon from "@mui/icons-material/LightModeOutlined";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
-import LockOpenOutlinedIcon from "@mui/icons-material/LockOpenOutlined";
 import GroupsIcon from "@mui/icons-material/Groups";
 import FingerprintIcon from "@mui/icons-material/Fingerprint";
 import LogoutIcon from "@mui/icons-material/Logout";
 import CheckIcon from "@mui/icons-material/Check";
 import { switchProfile } from "@/app/actions/profile";
-import { enterEditModeAction, exitEditModeAction } from "@/app/actions/auth";
 import { logoutAction } from "@/app/actions/session";
 
 export type ProfilePick = {
@@ -68,17 +66,14 @@ function ProfileAvatar({
 }
 
 // The account menu for the whole hub: switch who you are, plus the app-wide
-// bits — light/dark, the edit-mode toggle (passwordless since Phase D; claimed
-// profiles are protected by their claim), and the account pages (Manage group,
-// Passkeys, Sign out). All people/login management lives on /group.
+// bits — light/dark and the account pages (Manage group, Password & passkeys,
+// Sign out). All people/login management lives on /group.
 export default function ProfileMenu({
   active,
   profiles,
-  canEdit,
 }: {
   active: ProfilePick | null;
   profiles: ProfilePick[];
-  canEdit: boolean;
 }) {
   const [anchor, setAnchor] = React.useState<null | HTMLElement>(null);
   const [, startTransition] = React.useTransition();
@@ -94,12 +89,6 @@ export default function ProfileMenu({
   function choose(id: number) {
     closeMenu();
     if (id !== active?.id) startTransition(() => switchProfile(id));
-  }
-
-  // One-click edit-mode toggle — no password, no dialog (see lib/auth).
-  function toggleEditMode() {
-    closeMenu();
-    startTransition(() => (canEdit ? exitEditModeAction() : enterEditModeAction()));
   }
 
   return (
@@ -153,7 +142,7 @@ export default function ProfileMenu({
                 tapping it on a phone reads the note instead of switching. */}
             {p.lockedBy ? (
               <Tooltip
-                title={`${p.name}'s own data is locked — only ${p.lockedBy} can edit it. Household data still opens with edit mode.`}
+                title={`${p.name}'s own data is locked — only ${p.lockedBy} can edit it. Household data stays open to everyone.`}
                 enterTouchDelay={0}
                 leaveTouchDelay={4000}
               >
@@ -178,7 +167,7 @@ export default function ProfileMenu({
 
         {profiles.length > 0 ? <Divider /> : null}
 
-        {/* App-wide settings: appearance + the edit-mode toggle. */}
+        {/* App-wide settings: appearance. */}
         <MenuItem
           onClick={() => setMode(isDark ? "light" : "dark")}
           disabled={!mounted}
@@ -191,17 +180,6 @@ export default function ProfileMenu({
             )}
           </ListItemIcon>
           <ListItemText>{isDark ? "Light mode" : "Dark mode"}</ListItemText>
-        </MenuItem>
-
-        <MenuItem onClick={toggleEditMode}>
-          <ListItemIcon>
-            {canEdit ? (
-              <LockOutlinedIcon fontSize="small" />
-            ) : (
-              <LockOpenOutlinedIcon fontSize="small" />
-            )}
-          </ListItemIcon>
-          <ListItemText>{canEdit ? "Done editing" : "Enter edit mode"}</ListItemText>
         </MenuItem>
 
         <Divider />

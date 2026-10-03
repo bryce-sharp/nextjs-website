@@ -1,7 +1,5 @@
-import { redirect } from "next/navigation";
 import Container from "@mui/material/Container";
 import Typography from "@mui/material/Typography";
-import { isEditor } from "@/lib/auth";
 import { listProfiles } from "@/lib/queries/profiles";
 import { listExercises } from "@/lib/queries/workout";
 import { getActiveProfile } from "@/lib/profile";
@@ -17,7 +15,6 @@ export default async function NewWorkoutPage({
 }: {
   searchParams: Promise<{ profile?: string; weekday?: string }>;
 }) {
-  if (!(await isEditor())) redirect("/unlock");
 
   const { profile, weekday } = await searchParams;
   const [profiles, catalog, active] = await Promise.all([

@@ -77,9 +77,7 @@ export default async function GaragePage() {
             No vehicles yet
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {editor
-              ? "Add your first vehicle to start tracking maintenance, fuel, and the build."
-              : "Unlock editing to add a vehicle."}
+            Add your first vehicle to start tracking maintenance, fuel, and the build.
           </Typography>
           {editor ? (
             <Button
@@ -90,11 +88,7 @@ export default async function GaragePage() {
             >
               Add vehicle
             </Button>
-          ) : (
-            <Button component={Link} href="/unlock" variant="outlined">
-              Unlock editing
-            </Button>
-          )}
+          ) : null}
         </Paper>
       ) : (
         <Box

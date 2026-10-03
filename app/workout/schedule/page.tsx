@@ -6,7 +6,6 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import Paper from "@mui/material/Paper";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import { isEditor } from "@/lib/auth";
 import {
   getAssignments,
   listWorkoutsWithCreator,
@@ -28,7 +27,6 @@ export default async function SchedulePage({
 }: {
   searchParams: Promise<{ profile?: string }>;
 }) {
-  if (!(await isEditor())) redirect("/unlock");
 
   const { profile } = await searchParams;
   const [profiles, activeProfile] = await Promise.all([
