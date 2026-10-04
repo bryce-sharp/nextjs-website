@@ -76,8 +76,12 @@ Plaid's sign matches the ledger (positive = money out).
 | `PLAID_PRODUCTION_SECRET` | leave unset | Production secret |
 | `PLAID_ENV` | `sandbox` | `production` (required: the live site refuses Sandbox) |
 | `PLAID_TOKEN_KEY` | `openssl rand -base64 32` | a different key, also kept in a password manager |
-| `PLAID_WEBHOOK_URL` | unset (Plaid cannot reach localhost) | `https://<domain>/api/plaid/webhook` |
+| `PLAID_WEBHOOK_URL` | unset (Plaid cannot reach localhost) | `https://www.bstocksharp.dev/api/plaid/webhook` |
 | `CRON_SECRET` | unset | random string |
+| `LIVE_POSTGRES_URL`, `LIVE_POSTGRES_URL_NON_POOLING` | the live database, read only by `scripts/live.mjs` | not used |
+
+All laptop values live in Vercel's Development environment; `vercel env pull .env.local`
+fetches them (see `docs/setup.md`).
 
 `PLAID_TOKEN_KEY` must never change once banks are connected: a new key makes the
 stored access tokens unreadable, and replacing them means new connections, each
