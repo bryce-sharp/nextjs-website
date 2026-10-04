@@ -9,6 +9,7 @@ import {
   financialAccounts,
   recurringExpenses,
   profiles,
+  plaidTransactions,
 } from "@/lib/db/schema";
 import { requireEditor } from "@/lib/auth";
 import { requireGroupId } from "@/lib/session";
@@ -326,6 +327,11 @@ export async function deleteTransactionAction(
 ): Promise<void> {
   await requireEditor();
   await scopedTxn(id); // group-scope check
+  // A row the bank feed knows about stays deleted: later bank updates skip it.
+  await db
+    .update(plaidTransactions)
+    .set({ dismissedAt: new Date() })
+    .where(eq(plaidTransactions.ledgerTransactionId, id));
   await db.delete(transactions).where(eq(transactions.id, id));
   revalidatePath(BUDGET);
   revalidatePath(EXPLORER);
