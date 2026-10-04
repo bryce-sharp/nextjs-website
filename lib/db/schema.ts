@@ -374,7 +374,11 @@ export const passwordResets = pgTable(
     createdByAccountId: integer("created_by_account_id").references(() => accounts.id, {
       onDelete: "set null",
     }),
-    tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+    // Named as Postgres named it when scripts/migrate-password-resets.mjs made
+    // the table, so db:push sees the constraint instead of re-adding it.
+    tokenHash: varchar("token_hash", { length: 64 })
+      .notNull()
+      .unique("password_resets_token_hash_key"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
@@ -848,7 +852,7 @@ export const transactions = pgTable(
     transferAccountId: integer("transfer_account_id").references(() => financialAccounts.id, {
       onDelete: "set null",
     }),
-    source: varchar("source", { length: 20 }).notNull(), // sms | manual
+    source: varchar("source", { length: 20 }).notNull(), // sms | manual | api | import | plaid
     rawText: text("raw_text"), // full SMS body kept for audit + re-parse
     rawHash: varchar("raw_hash", { length: 64 }), // sha256; short-window dedupe, NOT unique
     // Unparseable SMS lands as amount 0 + needsReview — surfaced, never dropped.
@@ -859,6 +863,10 @@ export const transactions = pgTable(
     // category; discretionary rows get tagged by merchant rules or by hand. Null
     // = untagged.
     spendCategory: varchar("spend_category", { length: 40 }),
+    // The bank feed's word on this row: null = no bank has reported it yet,
+    // "pending" = authorized, "posted" = settled. Display only; the budget
+    // counts pending rows the same way it counts card alerts.
+    bankStatus: varchar("bank_status", { length: 10 }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -951,6 +959,117 @@ export type ApiToken = typeof apiTokens.$inferSelect;
 export type NewApiToken = typeof apiTokens.$inferInsert;
 export type MerchantCategory = typeof merchantCategories.$inferSelect;
 export type NewMerchantCategory = typeof merchantCategories.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINANCE — Bank sync (Plaid). An item is one bank login; its accounts map onto
+// the group's financial_accounts; plaid_transactions keeps the bank's version
+// of every transaction, linked to the ledger row it created or claimed. The
+// ledger row stays the truth: a sync refreshes only what the bank owns (the
+// posted amount, pending → posted), never the household's edits.
+// ─────────────────────────────────────────────────────────────────────────────
+export const plaidItems = pgTable(
+  "plaid_items",
+  {
+    id: serial("id").primaryKey(),
+    groupId: integer("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    itemId: varchar("item_id", { length: 100 }).notNull().unique(),
+    // AES-256-GCM via lib/plaid/crypto; the raw token never leaves the server.
+    accessTokenEnc: text("access_token_enc").notNull(),
+    institutionId: varchar("institution_id", { length: 40 }),
+    institutionName: varchar("institution_name", { length: 120 }).notNull(),
+    // ok | login_required | pending_disconnect | revoked | error. Anything but
+    // ok puts a Reconnect button on the Connections page.
+    status: varchar("status", { length: 30 }).notNull().default("ok"),
+    lastError: text("last_error"),
+    // The /transactions/sync bookmark; null = start from the beginning.
+    cursor: text("cursor"),
+    // Bank rows dated before this stay in plaid_transactions and never reach
+    // the ledger (that history already came in by SMS, import, and hand).
+    syncFrom: date("sync_from").notNull(),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    // Lease that keeps a webhook, the cron, and the button from syncing one
+    // item at the same time (the Neon HTTP driver has no held row locks).
+    syncLockedUntil: timestamp("sync_locked_until", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("idx_plaid_items_group").on(t.groupId)],
+);
+
+export const plaidAccounts = pgTable(
+  "plaid_accounts",
+  {
+    id: serial("id").primaryKey(),
+    plaidItemId: integer("plaid_item_id")
+      .notNull()
+      .references(() => plaidItems.id, { onDelete: "cascade" }),
+    accountId: varchar("account_id", { length: 100 }).notNull().unique(),
+    // The app account this bank account feeds; null = not imported.
+    financialAccountId: integer("financial_account_id").references(() => financialAccounts.id, {
+      onDelete: "set null",
+    }),
+    name: varchar("name", { length: 200 }).notNull(),
+    officialName: varchar("official_name", { length: 200 }),
+    mask: varchar("mask", { length: 10 }),
+    type: varchar("type", { length: 30 }).notNull(), // depository | credit | loan | investment | other
+    subtype: varchar("subtype", { length: 40 }),
+    // The bank's cached balances (free with every sync), for snapshot pre-fill.
+    currentBalance: numeric("current_balance", { precision: 12, scale: 2 }),
+    availableBalance: numeric("available_balance", { precision: 12, scale: 2 }),
+    balanceAsOf: timestamp("balance_as_of", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("idx_plaid_accounts_item").on(t.plaidItemId)],
+);
+
+// The bank's copy of each transaction, upserted on every sync (the role rawText
+// plays for SMS rows). appliedAt null = the ledger has not caught up with this
+// version yet, so re-running the apply step is always safe.
+export const plaidTransactions = pgTable(
+  "plaid_transactions",
+  {
+    id: serial("id").primaryKey(),
+    plaidAccountId: integer("plaid_account_id")
+      .notNull()
+      .references(() => plaidAccounts.id, { onDelete: "cascade" }),
+    transactionId: varchar("transaction_id", { length: 100 }).notNull().unique(),
+    // On a posted row: the pending row it replaces.
+    pendingTransactionId: varchar("pending_transaction_id", { length: 100 }),
+    // The ledger row this created or claimed; null = not in the ledger (before
+    // syncFrom, an unmapped account, a card payment, or removed by the bank).
+    ledgerTransactionId: integer("ledger_transaction_id").references(() => transactions.id, {
+      onDelete: "set null",
+    }),
+    pending: boolean("pending").notNull(),
+    // Plaid's sign: positive = money out of the account.
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    date: date("date").notNull(),
+    authorizedDate: date("authorized_date"),
+    name: varchar("name", { length: 300 }).notNull(),
+    merchantName: varchar("merchant_name", { length: 200 }),
+    pfcPrimary: varchar("pfc_primary", { length: 60 }),
+    pfcDetailed: varchar("pfc_detailed", { length: 100 }),
+    raw: jsonb("raw").notNull(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    // Set when the household deletes the ledger row: the bank's later updates
+    // (and the posted version of a pending row) must never bring it back.
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("idx_plaid_txn_ledger").on(t.ledgerTransactionId),
+    index("idx_plaid_txn_account_date").on(t.plaidAccountId, t.date),
+  ],
+);
+
+export type PlaidItem = typeof plaidItems.$inferSelect;
+export type NewPlaidItem = typeof plaidItems.$inferInsert;
+export type PlaidAccount = typeof plaidAccounts.$inferSelect;
+export type NewPlaidAccount = typeof plaidAccounts.$inferInsert;
+export type PlaidTransaction = typeof plaidTransactions.$inferSelect;
+export type NewPlaidTransaction = typeof plaidTransactions.$inferInsert;
 
 // ── Inferred types for use across the app ─────────────────────────────────────
 export type Group = typeof groups.$inferSelect;

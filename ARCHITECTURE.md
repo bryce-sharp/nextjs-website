@@ -279,8 +279,10 @@ builder and the runner consume.
 ## Dev & deploy
 
 - `npm run dev` · `npm run db:push` · `npm run db:studio` · `node scripts/seed-workout.mjs`
-- **Env** (`.env.local`, gitignored): `POSTGRES_URL` / `POSTGRES_URL_NON_POOLING`
-  (Neon, auto from the Vercel integration), `COOKIE_SECRET` (signs the session +
+- **Env** (`.env.local`, gitignored, filled by `vercel env pull .env.local`; see
+  [docs/setup.md](docs/setup.md)): `POSTGRES_URL` / `POSTGRES_URL_NON_POOLING` (the Neon
+  `dev` branch on laptops, the live `main` branch in Production; live-only scripts go
+  through `scripts/live.mjs`), `COOKIE_SECRET` (signs the session +
   edit-unlock cookies). ⚠️ `COOKIE_SECRET` must be set in Vercel → Environment
   Variables **before deploying the login gate** — the proxy fails closed
   without it, so nobody (including us) can sign in.

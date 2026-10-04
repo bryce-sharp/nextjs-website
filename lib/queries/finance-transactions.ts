@@ -99,6 +99,7 @@ export function toTxnRow(t: typeof transactions.$inferSelect): TxnRowData {
     needsReview: t.needsReview,
     note: t.note,
     source: t.source,
+    bankStatus: t.bankStatus,
   };
 }
 

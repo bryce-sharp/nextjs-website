@@ -35,6 +35,9 @@ Postgres · deployed on Vercel.
 
 ## Develop
 
+New laptop? Follow [docs/setup.md](docs/setup.md): install the tools, `vercel link`,
+then `vercel env pull .env.local`.
+
 ```bash
 npm run dev            # dev server → http://localhost:3000
 npm run build          # production build

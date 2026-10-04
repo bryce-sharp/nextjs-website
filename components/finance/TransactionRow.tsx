@@ -54,6 +54,8 @@ export type TxnRowData = {
   needsReview: boolean;
   note: string | null;
   source: string;
+  /** From the bank feed: null (not reported yet), "pending", or "posted". */
+  bankStatus: string | null;
 };
 
 // `flow` groups the pickers: money out vs money in (a reimbursement pays you
@@ -189,7 +191,13 @@ export default function TransactionRow({
       <TableCell sx={[{ maxWidth: 240 }, phoneCell("merchant", { maxWidth: "none", minWidth: 0 })]}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
           {txn.needsReview ? (
-            <Tooltip title="Couldn't read this one — open the ⋮ menu to set its details">
+            <Tooltip
+              title={
+                txn.source === "sms"
+                  ? "Couldn't read this one — open the ⋮ menu to set its details"
+                  : "Needs a look: open the ⋮ menu to check its details"
+              }
+            >
               <WarningAmberIcon fontSize="small" color="warning" />
             </Tooltip>
           ) : null}
@@ -251,6 +259,11 @@ export default function TransactionRow({
             color={chipColor(txn.category)}
             label={CATEGORY_LABEL[txn.category] ?? txn.category}
           />
+          {txn.bankStatus === "pending" ? (
+            <Tooltip title="Authorized at the bank but not posted yet; it updates in place when it posts">
+              <Chip size="small" variant="outlined" label="Pending" sx={{ borderStyle: "dotted" }} />
+            </Tooltip>
+          ) : null}
           {txn.spendCategory ? (
             <Chip
               size="small"

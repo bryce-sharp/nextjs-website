@@ -45,7 +45,11 @@ function isPublic(pathname: string): boolean {
     // Finance machine endpoints — token-authed themselves (Bearer fin_…), so
     // the session gate must let them through. Without this the Shortcut's POST
     // 307s to /login and the alert is silently lost.
-    pathname.startsWith("/api/finance/")
+    pathname.startsWith("/api/finance/") ||
+    // Plaid's webhook (signature-verified) and Vercel Cron (CRON_SECRET bearer)
+    // also authenticate themselves; redirected to /login they would be lost.
+    pathname === "/api/plaid/webhook" ||
+    pathname.startsWith("/api/cron/")
   );
 }
 
