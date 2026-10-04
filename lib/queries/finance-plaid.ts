@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { plaidAccounts, plaidItems, type PlaidItem } from "@/lib/db/schema";
 import { requireGroupId } from "@/lib/session";
@@ -73,6 +73,22 @@ export async function listBankConnections(): Promise<BankConnectionRow[]> {
     }
   }
   return [...byItem.values()];
+}
+
+export type BankAlert = { institutionName: string; status: string; lastError: string | null };
+
+/** This group's bank logins that need the owner (anything but a healthy status). */
+export async function listBankAlerts(): Promise<BankAlert[]> {
+  const groupId = await requireGroupId();
+  return db
+    .select({
+      institutionName: plaidItems.institutionName,
+      status: plaidItems.status,
+      lastError: plaidItems.lastError,
+    })
+    .from(plaidItems)
+    .where(and(eq(plaidItems.groupId, groupId), ne(plaidItems.status, "ok")))
+    .orderBy(asc(plaidItems.createdAt));
 }
 
 /** One item of the given group (with its encrypted token), or null. */

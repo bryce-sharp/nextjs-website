@@ -32,6 +32,10 @@ const ITEM_STATUS: Record<string, string> = {
   NO_ACCOUNTS: "error",
 };
 
+// Statuses a webhook raised while the connection still works: a successful
+// sync must not clear them, or the Reconnect prompt would vanish unanswered.
+const ADVISORY = new Set(["new_accounts", "pending_disconnect"]);
+
 const CHUNK = 100;
 const chunks = <T,>(xs: T[]) =>
   Array.from({ length: Math.ceil(xs.length / CHUNK) }, (_, i) => xs.slice(i * CHUNK, (i + 1) * CHUNK));
@@ -177,7 +181,11 @@ export async function syncPlaidItem(plaidItemId: number): Promise<SyncOutcome> {
       await stageTransactions(item.id, changes);
       await db
         .update(plaidItems)
-        .set({ cursor: changes.cursor, lastSyncedAt: new Date(), status: "ok", lastError: null })
+        .set({
+          cursor: changes.cursor,
+          lastSyncedAt: new Date(),
+          ...(ADVISORY.has(item.status) ? {} : { status: "ok", lastError: null }),
+        })
         .where(eq(plaidItems.id, item.id));
       fetched = { added: changes.added.length, modified: changes.modified.length, removed: changes.removed.length };
     } catch (err) {

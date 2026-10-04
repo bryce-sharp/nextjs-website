@@ -29,6 +29,8 @@ import {
   summarizeCashFlow,
 } from "@/lib/queries/finance-cashflow";
 import { listProfiles } from "@/lib/queries/profiles";
+import { listBankAlerts } from "@/lib/queries/finance-plaid";
+import { plaidConfigured } from "@/lib/plaid/client";
 import { currentMonthISO, lastDayOfMonth } from "@/lib/finance/parse";
 import { OUT_CATEGORIES, isMoneyOut, isUnlinkedBillPayment } from "@/lib/finance/cashflow";
 import { getGroupTimezone } from "@/lib/queries/group";
@@ -65,7 +67,7 @@ export default async function BudgetPage({
   const groupId = session.groupId;
   const [
     [view, txns, accounts, monthsWithData, bills, groupProfiles, recentMonths, trend, suggest, categories, editor],
-    [flow, allTrend, tagSpend, lanes, sources, incomeCategories],
+    [flow, allTrend, tagSpend, lanes, sources, incomeCategories, bankAlerts],
   ] = await Promise.all([
     Promise.all([
       getBudgetMonth(month),
@@ -87,6 +89,7 @@ export default async function BudgetPage({
       cashFlowByCategory(groupId, monthRange),
       moneyInBySource(groupId, monthRange),
       listIncomeCategories(),
+      plaidConfigured() ? listBankAlerts() : Promise.resolve([]),
     ]),
   ]);
   const c = view.computation;
@@ -210,6 +213,24 @@ export default async function BudgetPage({
         </Stack>
       </Stack>
 
+      {bankAlerts.length > 0 ? (
+        <Alert
+          severity="warning"
+          sx={{ mb: 3 }}
+          action={
+            editor ? (
+              <Button component={Link} href="/finance/settings" color="inherit" size="small">
+                Reconnect
+              </Button>
+            ) : undefined
+          }
+        >
+          {bankAlerts
+            .map((b) => `${b.institutionName}: ${b.lastError ?? "The bank connection needs attention."}`)
+            .join(" ")}
+        </Alert>
+      ) : null}
+
       {!view.hasIncome ? (
         <Alert severity="info" sx={{ mb: 3 }}>
           No income is set for {formatMonth(month)}, so there&apos;s no spending
@@ -300,8 +321,9 @@ export default async function BudgetPage({
         {c.needsReviewCount > 0 && editor ? (
           <Box sx={{ mt: 2 }}>
             <Typography variant="caption" color="text.secondary">
-              Tip: the ⚠ rows couldn&apos;t be read automatically — open the ⋮ menu
-              (or tap the row on a phone) to set their details.
+              Tip: the ⚠ rows need a look (an unreadable alert, a one-sided
+              transfer, or a charge the bank dropped). Open the ⋮ menu (or tap the
+              row on a phone) to set their details.
             </Typography>
           </Box>
         ) : null}

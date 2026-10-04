@@ -112,9 +112,15 @@ console refreshes it with current production data.
    alert, pending to posted in place, and idempotent re-syncs._
    Tables were created with `node scripts/migrate-plaid.mjs` rather than `db:push`,
    which currently wants to drop the unexplained `recurring_expenses.is_debt` column.
-4. **Automation**: webhook route with `Plaid-Verification` JWT checks (ES256, key by
-   `kid`, `iat` within 5 minutes, body SHA-256), `proxy.ts` allowlist, daily cron,
-   Reconnect banner, `pending` chips in History.
+4. **Automation**: _Built and tested._ `POST /api/plaid/webhook` verifies the
+   `Plaid-Verification` JWT (ES256, key fetched by `kid`, `iat` within 5 minutes, body
+   SHA-256), then syncs after the reply on `SYNC_UPDATES_AVAILABLE` and records item
+   health (`ERROR`, `LOGIN_REPAIRED`, `PENDING_DISCONNECT`, `USER_PERMISSION_REVOKED`,
+   `NEW_ACCOUNTS_AVAILABLE`). `GET /api/cron/plaid` (Vercel Cron, daily at 12:00 UTC,
+   `CRON_SECRET` bearer) syncs every bank. Both are allowlisted in `proxy.ts`. The
+   Budget page shows a Reconnect banner when a bank needs attention.
+   `PLAID_WEBHOOK_URL` is `https://www.bstocksharp.dev/api/plaid/webhook` (the bare
+   domain redirects, which webhooks should not depend on).
 5. **Go live**: Production keys in Vercel, push the schema to production, connect
    Chase and Ally once from a desktop browser, run beside the SMS shortcut through
    October, then retire the shortcut.

@@ -48,9 +48,13 @@ const STATUS: Record<string, { label: string; color: "success" | "warning" | "er
   ok: { label: "Connected", color: "success" },
   login_required: { label: "Needs sign-in", color: "warning" },
   pending_disconnect: { label: "Expiring soon", color: "warning" },
+  new_accounts: { label: "New accounts", color: "warning" },
   revoked: { label: "Access revoked", color: "error" },
   error: { label: "Error", color: "error" },
 };
+
+// Statuses where the connection still syncs (a prompt is waiting, nothing is broken).
+const SYNCABLE = new Set(["ok", "pending_disconnect", "new_accounts"]);
 
 type Notice = { severity: "error" | "info"; text: string };
 
@@ -204,7 +208,7 @@ export default function BankConnections({
                     {c.lastSyncedAt ? `synced ${formatDate(c.lastSyncedAt)}` : "not synced yet"}
                     {` · importing from ${formatDate(c.syncFrom)}`}
                   </Typography>
-                  {canManage && c.status === "ok" ? (
+                  {canManage && SYNCABLE.has(c.status) ? (
                     <Button
                       size="small"
                       startIcon={<SyncIcon />}
