@@ -63,6 +63,22 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
     .where(eq(plaidAccounts.plaidItemId, item.id));
   const mappedIds = accounts.filter((a) => a.financialAccountId !== null).map((a) => a.id);
   const unmappedIds = accounts.filter((a) => a.financialAccountId === null).map((a) => a.id);
+
+  // A pending copy whose posted copy has arrived is gone, and its ledger row has
+  // moved to the posted copy. A full re-read never lists it as removed, so retire it.
+  const retireSupersededPending = () =>
+    db
+      .update(plaidTransactions)
+      .set({ removedAt: new Date() })
+      .where(
+        and(
+          eq(plaidTransactions.pending, true),
+          isNull(plaidTransactions.removedAt),
+          isNull(plaidTransactions.ledgerTransactionId),
+          inArray(plaidTransactions.plaidAccountId, accounts.map((a) => a.id)),
+          sql`exists (select 1 from plaid_transactions q where q.pending_transaction_id = ${plaidTransactions.transactionId} and q.removed_at is null)`,
+        ),
+      );
   const now = new Date();
 
   // Rows that never reach the ledger: unmapped accounts (mapping one later
@@ -103,7 +119,10 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
     .innerJoin(plaidAccounts, eq(plaidTransactions.plaidAccountId, plaidAccounts.id))
     .where(and(isNull(plaidTransactions.appliedAt), inArray(plaidTransactions.plaidAccountId, mappedIds)))
     .orderBy(asc(plaidTransactions.date), asc(plaidTransactions.id));
-  if (!staged.length) return stats;
+  if (!staged.length) {
+    await retireSupersededPending();
+    return stats;
+  }
 
   const tz = await getGroupTimezone(item.groupId);
   const [spendRules, transferRules] = await Promise.all([
@@ -521,6 +540,7 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
     await markApplied(r.id, null);
   }
 
+  await retireSupersededPending();
   return stats;
 }
 
