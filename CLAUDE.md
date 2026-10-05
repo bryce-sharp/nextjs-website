@@ -40,6 +40,10 @@ Working rules for Claude Code in this repository. Laptop setup for people is in
   linking again.
 - The ledger row is the household's: syncs only refresh bank-owned fields, and deleted
   rows stay deleted (`plaid_transactions.dismissed_at`).
+- Read-only checks (add `node scripts/live.mjs` in front for live): `plaid-status.mjs`
+  (sync health), `bill-audit.mjs` (bill patterns against the bank's own text; `--try`
+  tests a pattern before it is added). `plaid-reapply.mjs` takes a bank-created row back
+  out so the sync files it again (dry run unless `--yes`).
 
 ## Checking app code without the server
 
