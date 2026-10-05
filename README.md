@@ -49,6 +49,7 @@ node scripts/inspect-db.mjs   # quick: list the DB tables
 node scripts/reconcile-card.mjs <chase.csv>   # read-only: statement vs app transactions
 node scripts/plaid-status.mjs   # read-only: bank sync health (--rows for every bank row)
 node scripts/bill-audit.mjs     # read-only: bills' match patterns vs the bank's text (--try "TEXT")
+node scripts/atlas-apply.mjs <changes.json>   # apply reviewed bill changes (dry run unless --yes)
 ```
 
 ## Layout

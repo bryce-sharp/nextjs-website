@@ -40,8 +40,9 @@ Plaid's sign matches the ledger (positive = money out).
 - **Deposited checks and cash** (`TRANSFER_IN_DEPOSIT`) are income.
 - **Bills that share a merchant** (tithing and fast offerings at one church, two
   subscriptions from one store) are told apart by amount: an equally specific pattern
-  match goes to the bill whose expected amount is closest. This applies to card alerts
-  and hand entries too.
+  match goes to the bill whose expected amount is closest. At equal amounts (two people's
+  identical plans), the bill whose Atlas due month is nearest the charge's date wins. This
+  applies to card alerts and hand entries too.
 - **Payments recorded in parts:** when no single row matches, two or three rows that add
   up to the bank amount to the cent (within a day of each other, entered by hand or
   sharing the merchant) are claimed together (`plaid_transactions.split_ledger_ids`).

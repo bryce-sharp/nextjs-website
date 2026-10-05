@@ -227,7 +227,7 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
     }
   } else if (categoryRaw === "auto") {
     const rules = await merchantRulesFor(groupId, postedOn);
-    const c = categorizeMerchant(merchant ?? "", rules, Number(amount));
+    const c = categorizeMerchant(merchant ?? "", rules, Number(amount), postedOn);
     category = c.category;
     autoRecurringId = c.recurringExpenseId;
     // An account's transfer words beat the bill and tag rules.

@@ -12,6 +12,7 @@
 //   --months 24        look further back (default 12)
 //   --try "PATTERN"    instead, list every bank row a pattern would catch and
 //                      where bank sync files it today (repeatable)
+//   --bills            instead, list every bill segment Atlas holds
 //
 // Nothing is written.
 
@@ -40,6 +41,7 @@ if (!Number.isInteger(months) || months < 1 || months > 24) {
   process.exit(1);
 }
 const tries = args.flatMap((a, i) => (a === "--try" && args[i + 1] ? [args[i + 1]] : []));
+const listBills = args.includes("--bills");
 
 const today = new Date().toISOString().slice(0, 10);
 const since = (() => {
@@ -85,7 +87,7 @@ const contains = (row, pattern) => {
 
 async function auditGroup(groupId) {
   const bills = await sql`
-    SELECT id, name, amount::float8 AS amount, payments_per_year, merchant_patterns, is_estimate,
+    SELECT id, name, amount::float8 AS amount, payments_per_year, merchant_patterns, is_estimate, due_months,
            paid_from_account_id, start_date::text AS start_date, end_date::text AS end_date
     FROM recurring_expenses WHERE group_id = ${groupId} ORDER BY name, start_date`;
   const accounts = await sql`
@@ -111,11 +113,29 @@ async function auditGroup(groupId) {
       AND t.account_id IN (SELECT financial_account_id FROM plaid_accounts WHERE financial_account_id IS NOT NULL)
     ORDER BY t.posted_on, t.id`;
 
+  const accountName = new Map(accounts.map((a) => [a.id, a.name]));
+  if (listBills) {
+    console.log(`BILLS (every segment; a price change starts a new one)`);
+    console.table(
+      bills.map((b) => ({
+        id: b.id,
+        bill: clip(b.name, 30),
+        every: every(b.payments_per_year),
+        amount: money(b.amount),
+        estimate: b.is_estimate ? "yes" : "",
+        from: b.start_date,
+        to: b.end_date ?? "",
+        due: (b.due_months ?? []).join(","),
+        "paid from": accountName.get(b.paid_from_account_id) ?? "",
+        patterns: clip((b.merchant_patterns ?? []).join(" | "), 50),
+      })),
+    );
+    return;
+  }
   if (!bank.length) {
     console.log(`No posted bank rows since ${since}.`);
     return;
   }
-  const accountName = new Map(accounts.map((a) => [a.id, a.name]));
   const billById = new Map(bills.map((b) => [b.id, b]));
   const current = bills.filter((b) => b.start_date <= today && (b.end_date === null || b.end_date >= today));
   const nameKey = (b) => b.name.trim().toLowerCase();
@@ -128,6 +148,7 @@ async function auditGroup(groupId) {
     patterns: b.merchant_patterns ?? [],
     category: null,
     amount: b.amount,
+    dueMonths: b.due_months,
   }));
   const transferRules = accounts
     .filter((a) => !a.archived && a.kind !== "wallet")
@@ -147,8 +168,8 @@ async function auditGroup(groupId) {
         route = { kind: "transfer words", billId: null };
       } else {
         const paid = Math.abs(row.amount);
-        let bill = categorizeMerchant(row.name, rules, paid);
-        if (bill.recurringExpenseId === null && row.merchant_name) bill = categorizeMerchant(row.merchant_name, rules, paid);
+        let bill = categorizeMerchant(row.name, rules, paid, row.date);
+        if (bill.recurringExpenseId === null && row.merchant_name) bill = categorizeMerchant(row.merchant_name, rules, paid, row.date);
         route = { kind, billId: bill.recurringExpenseId };
       }
     }
@@ -241,13 +262,15 @@ async function auditGroup(groupId) {
       const rows = caughtBy.get(b.id) ?? [];
       const expected = (b.payments_per_year * months) / 12;
       const typical = median(rows.map((r) => Math.abs(r.amount)));
+      const latest = rows.length ? Math.abs(rows[rows.length - 1].amount) : null;
       const paidFrom = accounts.find((a) => a.id === b.paid_from_account_id);
       const notes = [];
       if (paidFrom && !paidFrom.connected) notes.push(`paid from ${paidFrom.name} (not connected)`);
       if (!(b.merchant_patterns ?? []).length) notes.push("no patterns");
       else if (!rows.length && paidFrom?.connected !== false) notes.push("catches nothing");
       if (rows.length > expected * 1.5 + 1) notes.push("catches more than expected");
-      if (rows.length >= 2 && !b.is_estimate && Math.abs(typical - b.amount) / b.amount > 0.15) notes.push(`bank usually ${money(typical)}`);
+      // The latest charge, not the median: a price change leaves a misleading middle value.
+      if (latest != null && !b.is_estimate && Math.abs(latest - b.amount) / b.amount > 0.05) notes.push(`latest charge ${money(latest)}`);
       return {
         id: b.id,
         bill: clip(b.name, 28),
@@ -257,6 +280,7 @@ async function auditGroup(groupId) {
         expected: Math.round(expected),
         caught: rows.length,
         typical: money(typical),
+        latest: money(latest),
         notes: notes.join("; "),
       };
     }),

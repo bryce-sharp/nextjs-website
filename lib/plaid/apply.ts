@@ -245,10 +245,10 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
       } else {
         const rules = await rulesOn(date);
         // Bills match on the raw bank text first, then on Plaid's clean merchant
-        // name; the amount picks between bills that share a merchant.
+        // name; the amount, then the due month, picks between bills that share a merchant.
         const paid = Math.abs(Number(r.amount));
-        let bill = categorizeMerchant(r.name, rules, paid);
-        if (bill.recurringExpenseId === null && r.merchantName) bill = categorizeMerchant(r.merchantName, rules, paid);
+        let bill = categorizeMerchant(r.name, rules, paid, date);
+        if (bill.recurringExpenseId === null && r.merchantName) bill = categorizeMerchant(r.merchantName, rules, paid, date);
         ({ category, recurringExpenseId } = bill);
         billCategory = rules.find((b) => b.recurringExpenseId === recurringExpenseId)?.category ?? null;
       }
