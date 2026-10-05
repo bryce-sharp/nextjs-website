@@ -1056,6 +1056,9 @@ export const plaidTransactions = pgTable(
     // Set when the household deletes the ledger row: the bank's later updates
     // (and the posted version of a pending row) must never bring it back.
     dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    // One payment the household recorded in parts: ledgerTransactionId holds
+    // the largest part and these the rest. Syncs never change split amounts.
+    splitLedgerIds: integer("split_ledger_ids").array(),
     createdAt: createdAt(),
   },
   (t) => [

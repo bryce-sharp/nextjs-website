@@ -37,6 +37,15 @@ Plaid's sign matches the ledger (positive = money out).
 - **Card payments** (`LOAN_PAYMENTS_CREDIT_CARD_PAYMENT`) never reach the ledger, as today.
 - **Venmo and Cash App payments** (`TRANSFER_OUT_*_FROM_APPS`) are spending, matching the
   wallet rule; money received through those apps lands in Needs review.
+- **Deposited checks and cash** (`TRANSFER_IN_DEPOSIT`) are income.
+- **Bills that share a merchant** (tithing and fast offerings at one church, two
+  subscriptions from one store) are told apart by amount: an equally specific pattern
+  match goes to the bill whose expected amount is closest. This applies to card alerts
+  and hand entries too.
+- **Payments recorded in parts:** when no single row matches, two or three rows that add
+  up to the bank amount to the cent (within a day of each other, entered by hand or
+  sharing the merchant) are claimed together (`plaid_transactions.split_ledger_ids`).
+  Syncs never change the parts' amounts; deleting one part keeps the others covered.
 - **Deposits described as payroll or direct deposit** are income even when Plaid's category
   disagrees, so a mislabeled paycheck never becomes a large refund.
 - **Transfers between connected accounts** keep one ledger row (from, into); the

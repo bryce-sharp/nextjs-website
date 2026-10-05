@@ -38,6 +38,7 @@ export async function merchantRulesFor(groupId: number, onDate: string): Promise
       paymentsPerYear: recurringExpenses.paymentsPerYear,
       merchantPatterns: recurringExpenses.merchantPatterns,
       category: recurringExpenses.category,
+      amount: recurringExpenses.amount,
     })
     .from(recurringExpenses)
     .where(
@@ -52,6 +53,7 @@ export async function merchantRulesFor(groupId: number, onDate: string): Promise
     paymentsPerYear: r.paymentsPerYear,
     patterns: r.merchantPatterns ?? [],
     category: r.category,
+    amount: Number(r.amount),
   }));
 }
 
@@ -190,7 +192,7 @@ export async function ingestAlert(
 
   const rules = await merchantRulesFor(groupId, postedOn);
   const transfer = asTransfer(parsed.merchant, parsed.amount, accountId, await transferRulesFor(groupId));
-  const matched = categorizeMerchant(parsed.merchant, rules);
+  const matched = categorizeMerchant(parsed.merchant, rules, Number(parsed.amount));
   const category = transfer ? "transfer" : matched.category;
   const recurringExpenseId = transfer ? null : matched.recurringExpenseId;
   const spendCategory = transfer
@@ -317,7 +319,7 @@ export async function ingestStructured(
   let rules: MerchantRule[] = [];
   if (merchant) {
     rules = await merchantRulesFor(groupId, postedOn);
-    ({ category, recurringExpenseId } = categorizeMerchant(merchant, rules));
+    ({ category, recurringExpenseId } = categorizeMerchant(merchant, rules, Number(amount)));
   }
   const needsReview = merchant === null;
   const transfer = asTransfer(merchant, amount, accountId, await transferRulesFor(groupId));
