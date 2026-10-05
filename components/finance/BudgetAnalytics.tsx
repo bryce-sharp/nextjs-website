@@ -86,13 +86,10 @@ export type CashFlowDetailsData = {
 };
 
 // The All-money counterpart: how the month went against the plan (the same
-// report History shows) and money in by source (reimbursements pooled on one
-// line). Month-over-month comparison lives in History, one link away.
+// report History shows) and money in by source (income only: reimbursements
+// net against spending). Month-over-month comparison lives in History, one link away.
 export function CashFlowDetails({ d }: { d: CashFlowDetailsData }) {
   const income = d.sources.filter((s) => s.category === "income");
-  const reimbursed = d.sources
-    .filter((s) => s.category === "reimbursement")
-    .reduce((sum, s) => sum + s.amount, 0);
 
   return (
     <MoreDetails>
@@ -102,12 +99,11 @@ export function CashFlowDetails({ d }: { d: CashFlowDetailsData }) {
         </Section>
       ) : null}
 
-      {income.length > 0 || reimbursed !== 0 ? (
+      {income.length > 0 ? (
         <Section title="Money in">
           {income.map((s) => (
             <Row key={s.source ?? "—"} label={s.source ?? "—"} value={formatMoney(s.amount)} />
           ))}
-          {reimbursed !== 0 ? <Row label="Reimbursements" value={formatMoney(reimbursed)} /> : null}
         </Section>
       ) : null}
 

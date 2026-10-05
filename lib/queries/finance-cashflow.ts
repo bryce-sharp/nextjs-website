@@ -3,16 +3,18 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { transactions as t } from "@/lib/db/schema";
 import { txnWhere, type TxnFilters } from "@/lib/queries/finance-transactions";
-import { IN_CATEGORIES, SPEND_CATEGORIES } from "@/lib/finance/cashflow";
+import { IN_CATEGORIES, REIMBURSEMENT, SPEND_CATEGORIES } from "@/lib/finance/cashflow";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CASH FLOW — "what actually moved", beside the budget's "what's left to spend"
 // (never scored against it). ONE definition for every view — the budget's All
 // money toggle, History, and the explorer's totals — so their numbers agree:
-//   • IN  = income + reimbursements (a reimbursement pays you back).
+//   • IN  = income.
 //   • OUT = discretionary, fixed, amortized (in the month it's PAID), savings
 //           (bought from savings: real money, just off-budget) and fund
-//           purchases. Refunds (negative rows) net against their own lane.
+//           purchases. Refunds (negative rows) net against their own lane, and
+//           reimbursements (paybacks for purchases) net against money out
+//           under the tag of what they pay back.
 //   • Never counted: Excluded rows, unreadable (needs-review) rows, and fund
 //     deposits (funds are play money).
 // Dated by purchase: card payments aren't in the ledger, so nothing doubles.
@@ -24,7 +26,7 @@ const list = (cats: readonly string[]) => sql.raw(cats.map((c) => `'${c}'`).join
 const moneyIn = () =>
   sql<string>`coalesce(sum(case when not ${t.needsReview} and ${t.category} in (${list(IN_CATEGORIES)}) then ${t.amount} else 0 end), 0)`;
 const moneyOut = () =>
-  sql<string>`coalesce(sum(case when ${t.needsReview} then 0 when ${t.category} in (${list(SPEND_CATEGORIES)}) then ${t.amount} when ${t.category} = 'fund' then greatest(${t.amount}, 0) else 0 end), 0)`;
+  sql<string>`coalesce(sum(case when ${t.needsReview} then 0 when ${t.category} in (${list(SPEND_CATEGORIES)}) then ${t.amount} when ${t.category} = 'fund' then greatest(${t.amount}, 0) when ${t.category} = ${REIMBURSEMENT} then -${t.amount} else 0 end), 0)`;
 
 const dollars = (v: string | number | null | undefined) => Math.round(Number(v ?? 0) * 100) / 100;
 
@@ -145,7 +147,7 @@ export async function cashFlowByMonthAndCategory(
   }));
 }
 
-/** Money in by source (the merchant field on income/reimbursement rows). */
+/** Money in by source (the merchant field on income rows). */
 export async function moneyInBySource(groupId: number, f: TxnFilters): Promise<SourceIn[]> {
   const amount = sql<string>`coalesce(sum(${t.amount}), 0)`;
   const rows = await db

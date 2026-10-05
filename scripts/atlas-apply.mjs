@@ -1,6 +1,6 @@
 // Apply a reviewed list of Atlas bill changes: the edits the Atlas page makes
 // (add match patterns, fix a bill in place, add a bill) plus filing ledger rows
-// under a bill, as the History page does. For when an audit (bill-audit.mjs)
+// under a bill or re-tagging them, as the History page does. For when an audit (bill-audit.mjs)
 // turns up several at once. The list lives in a JSON file outside the repo, since
 // it holds household details. Dry run by default; --yes writes.
 //
@@ -13,6 +13,7 @@
 //   { "add": { "like": 1, "name": "…", "amount": 16.23, "paymentsPerYear": 12, "dueMonths": null,
 //              "from": "2026-09" } }                                  copies the rest from bill "like"
 //   { "refile": [2101, 2102], "toBill": 17 }                          toBill may be a current bill's name
+//   { "retag": [1260], "tag": "Dining" }                              set the tag (never on transfers)
 
 import fs from "node:fs";
 import { config } from "dotenv";
@@ -205,6 +206,22 @@ async function main() {
               spend_category = coalesce(spend_category, ${target.category})
           WHERE id = ANY(${c.refile})`;
       }
+    } else if (c.retag) {
+      const tag = String(c.tag ?? "").trim().slice(0, 40);
+      if (!tag) throw new Error(`${n} retag needs a tag.`);
+      const rows = await sql`
+        SELECT id, group_id, posted_on::text AS date, merchant, amount::text AS amount, category,
+               coalesce(spend_category, 'untagged') AS tag
+        FROM transactions WHERE id = ANY(${c.retag})`;
+      for (const id of c.retag) {
+        const t = rows.find((r) => r.id === id);
+        if (!t) throw new Error(`${n} no transaction ${id}.`);
+        if (t.category === "transfer") throw new Error(`${n} transaction ${id} is a transfer; transfers are never tagged.`);
+        groups.add(t.group_id);
+        console.log(`${n} ${t.date} ${t.merchant} ${t.amount} (${t.category}): ${t.tag} -> ${tag}`);
+      }
+      if (new Set(rows.map((r) => r.group_id)).size > 1) throw new Error(`${n} the rows belong to different households.`);
+      if (write) await sql`UPDATE transactions SET spend_category = ${tag} WHERE id = ANY(${c.retag}) AND category <> 'transfer'`;
     } else {
       throw new Error(`${n} unknown change: ${JSON.stringify(c)}`);
     }

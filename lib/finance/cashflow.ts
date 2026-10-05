@@ -9,9 +9,14 @@ export const UNTAGGED = "__none__";
 
 /** Spend lanes that count at face value (refunds net against them). */
 export const SPEND_CATEGORIES = ["discretionary", "fixed", "amortized", "savings"] as const;
-/** Every money-out lane: the spend lanes plus fund purchases (deposits excluded). */
-export const OUT_CATEGORIES = [...SPEND_CATEGORIES, "fund"] as const;
-export const IN_CATEGORIES = ["income", "reimbursement"] as const;
+/** A reimbursement pays back a purchase, so it sits on the spending side and
+ *  nets against it (like a refund), never as income. */
+export const REIMBURSEMENT = "reimbursement";
+/** Every money-out lane: the spend lanes, fund purchases (deposits excluded),
+ *  and reimbursements (negative). */
+export const OUT_CATEGORIES = [...SPEND_CATEGORIES, "fund", REIMBURSEMENT] as const;
+/** Money in is income only; an income row may also carry a fund it was put in. */
+export const IN_CATEGORIES = ["income"] as const;
 
 /** Each lane's name in breakdowns and the Type filter (plural: it names a group of rows). */
 export const LANE_LABELS: Record<string, string> = {
@@ -28,7 +33,8 @@ export const LANE_LABELS: Record<string, string> = {
 /** Money moved between your own accounts: never in, never out, never tagged. */
 export const TRANSFER = "transfer";
 
-/** Lanes whose tags come from the Categories-tab rules (bills inherit theirs). */
+/** Lanes whose tags come from the Categories-tab rules (bills inherit theirs;
+ *  a reimbursement takes the tag of what it pays back, picked by hand). */
 export const RULE_CATEGORIES: Record<Flow, readonly string[]> = {
   out: ["discretionary", "savings", "fund"],
   in: IN_CATEGORIES,
@@ -41,11 +47,12 @@ export function flowOf(category: string): Flow | null {
   return null;
 }
 
-/** Does this row count toward money out? Fund deposits and unreadable rows don't. */
+/** Does this row count toward money out? Fund deposits and unreadable rows
+ *  don't; a reimbursement does, as a credit against it. */
 export function isMoneyOut(category: string, amount: number, needsReview: boolean): boolean {
   if (needsReview) return false;
   if (category === "fund") return amount > 0;
-  return (SPEND_CATEGORIES as readonly string[]).includes(category);
+  return category === REIMBURSEMENT || (SPEND_CATEGORIES as readonly string[]).includes(category);
 }
 
 /**
@@ -66,4 +73,26 @@ export function isUnlinkedBillPayment(
 /** Does this row count toward money in? */
 export function isMoneyIn(category: string, needsReview: boolean): boolean {
   return !needsReview && (IN_CATEGORIES as readonly string[]).includes(category);
+}
+
+/** Which way a row's money went: into your pocket or out of it. A transfer
+ *  with only an "into" account came from outside (a Zelle from a person). */
+export function moneyDirection(
+  category: string,
+  amount: number,
+  accountId: number | null,
+  transferAccountId: number | null,
+): "in" | "out" {
+  if (category === "income" || category === REIMBURSEMENT) return "in";
+  if (category === TRANSFER) return accountId == null && transferAccountId != null ? "in" : "out";
+  return amount < 0 ? "in" : "out";
+}
+
+/** The stored amount for a lane, given the size and direction: income,
+ *  reimbursements, and transfers are positive; money in on a spending or fund
+ *  row is negative (a refund or a deposit). */
+export function signedAmount(category: string, size: number, direction: "in" | "out"): number {
+  const n = Math.abs(size);
+  if (category === "income" || category === REIMBURSEMENT || category === TRANSFER) return n;
+  return direction === "in" ? -n : n;
 }

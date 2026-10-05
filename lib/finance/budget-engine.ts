@@ -14,7 +14,8 @@
 //   • AMORTIZED — non-monthly bills as sinking funds: every month reserves
 //     amount×paymentsPerYear÷12; the real bill consumes the reserve, never the
 //     month's discretionary.
-//   • Funds draw their own pools; income and savings are tracked, never spend;
+//   • Funds draw their own pools (income put into one adds to it); income and
+//     savings are tracked, never spend;
 //     ignored is invisible; needs-review is surfaced, excluded from math.
 //
 // All money in integer CENTS.
@@ -62,7 +63,8 @@ export type EngineFund = {
   name: string;
   ownerName: string | null;
   startingBalanceC: number;
-  /** Σ of ALL fund txn amounts ever, before this month (caller computes). */
+  /** Σ of ALL fund txn amounts ever, before this month, minus income put into
+   *  the fund (caller computes). */
   drawnBeforeC: number;
 };
 
@@ -260,9 +262,10 @@ export function computeBudgetMonth(input: EngineInput): BudgetComputation {
   const projectedSpendC = dayOfMonth > 0 ? Math.round((netSpentC / dayOfMonth) * daysInMonth) : 0;
 
   const funds = input.funds.map((f) => {
+    // Fund purchases draw it down; income put into the fund adds to it.
     const drawnThisMonthC = txns
-      .filter((t) => t.category === "fund" && t.fundId === f.id)
-      .reduce((s, t) => s + t.amountC, 0);
+      .filter((t) => t.fundId === f.id && (t.category === "fund" || t.category === "income"))
+      .reduce((s, t) => s + (t.category === "income" ? -t.amountC : t.amountC), 0);
     return {
       id: f.id,
       name: f.name,

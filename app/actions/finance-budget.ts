@@ -17,6 +17,7 @@ import { parseMoney, parseStr, parseInt as parseBoundedInt, todayISO } from "@/l
 import { categorizeMerchant } from "@/lib/finance/sms";
 import { asTransfer, merchantRulesFor, resolveSpendCategory, transferRulesFor } from "@/lib/finance/ingest";
 import { toTxnRow } from "@/lib/queries/finance-transactions";
+import { moneyDirection, signedAmount } from "@/lib/finance/cashflow";
 import { releaseBankLinks } from "@/lib/plaid/apply";
 import type { TxnRowData } from "@/components/finance/TransactionRow";
 
@@ -37,6 +38,12 @@ const TXN_CATEGORIES = new Set([
   "transfer",
   "ignored",
 ]);
+
+/** A tag typed or picked in a form: trimmed to the column's 40 characters; empty = none. */
+function parseTag(v: FormDataEntryValue | null): string | null {
+  const s = typeof v === "string" ? v.trim().slice(0, 40) : "";
+  return s || null;
+}
 
 /** A transaction row in OUR group, or throw. */
 async function scopedTxn(id: number) {
@@ -100,6 +107,8 @@ function checkTransfer(from: { kind: string } | null, into: { id: number; kind: 
  * Edit a transaction — the Lauren-proof path. PARTIAL: only fields present in
  * the form are touched, so an inline one-field save (tap a new category) never
  * blanks the note. Any edit clears needsReview (a human has looked at it now).
+ * The amount arrives as a size; its sign follows the row's direction (money in
+ * or out) and the lane, so re-filing a refund as a reimbursement stays money in.
  * Returns the saved row so a paged list can patch it in place.
  */
 export async function updateTransactionAction(
@@ -116,10 +125,7 @@ export async function updateTransactionAction(
     const c = String(formData.get("category"));
     if (TXN_CATEGORIES.has(c)) set.category = c;
   }
-  if (has("amount")) {
-    const a = parseMoney(formData.get("amount"));
-    if (a !== null) set.amount = a;
-  }
+
   if (has("merchant")) set.merchant = parseStr(formData.get("merchant"));
   if (has("note")) set.note = parseStr(formData.get("note"));
   if (has("postedOn")) {
@@ -149,10 +155,25 @@ export async function updateTransactionAction(
   }
 
   // Links only mean something for their category; keep them honest whether the
-  // category changed in THIS save or was already set. fund ↔ fund category,
-  // recurring bill ↔ fixed/amortized.
+  // category changed in THIS save or was already set. fund ↔ a fund purchase or
+  // income put into the fund, recurring bill ↔ fixed/amortized.
   const effectiveCategory = (set.category as string | undefined) ?? row.category;
-  if (effectiveCategory !== "fund") set.fundId = null;
+  if (effectiveCategory !== "fund" && effectiveCategory !== "income") set.fundId = null;
+
+  // The money keeps its direction; the lane decides the stored sign.
+  const direction = moneyDirection(row.category, Number(row.amount), row.accountId, row.transferAccountId);
+  const size = has("amount") ? parseMoney(formData.get("amount")) : null;
+  if (size !== null || effectiveCategory !== row.category) {
+    const amount = signedAmount(effectiveCategory, Number(size ?? row.amount), direction);
+    set.amount = amount.toFixed(2);
+    if (Math.sign(amount) !== Math.sign(Number(row.amount))) {
+      set.originalAmount = ((Math.sign(amount) || 1) * Math.abs(Number(row.originalAmount))).toFixed(2);
+    }
+  }
+  // Money that came in from outside as a one-sided transfer keeps the account it landed in.
+  if (row.category === "transfer" && effectiveCategory !== "transfer" && !has("accountId") && row.accountId == null) {
+    set.accountId = row.transferAccountId;
+  }
   if (effectiveCategory !== "fixed" && effectiveCategory !== "amortized") {
     set.recurringExpenseId = null;
   }
@@ -165,9 +186,15 @@ export async function updateTransactionAction(
     set.transferAccountId = null;
   }
 
-  // An untagged row picks up its tag from the merchant rules (e.g. fixing an
-  // unreadable alert's merchant); an existing tag is never overwritten here.
-  if (row.spendCategory == null && effectiveCategory !== "transfer") {
+  // A tag picked in the form wins (a reimbursement's is what it pays back); an
+  // untagged row otherwise picks one up from the merchant rules (e.g. fixing an
+  // unreadable alert's merchant), and an existing tag is never overwritten here.
+  const pickedTag = has("spendCategory") ? parseTag(formData.get("spendCategory")) : null;
+  if (pickedTag && effectiveCategory !== "transfer") {
+    set.spendCategory = pickedTag;
+  } else if (has("spendCategory") && row.spendCategory != null && effectiveCategory !== "transfer") {
+    set.spendCategory = null;
+  } else if (row.spendCategory == null && effectiveCategory !== "transfer") {
     set.spendCategory = await resolveSpendCategory(
       groupId,
       effectiveCategory,
@@ -207,24 +234,13 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
   // bill); an explicit non-income choice is honored as-is.
   let category: string;
   let autoRecurringId: number | null = null;
-  let storeAmount = amount; // the signed value actually stored
   let transferAccountId: number | null = null;
   if (kind === "transfer") {
     category = "transfer";
   } else if (kind === "income") {
-    // Money in picks a budget destination: "spend" credits Left-to-Spend (a
-    // negative discretionary row — reads green "+", raises the budget);
-    // "reimbursement" is a payback (credits the budget, tracked on its own);
-    // anything else is just tracked with no budget effect.
-    const destination = String(formData.get("destination"));
-    if (destination === "spend") {
-      category = "discretionary";
-      storeAmount = (-Number(amount)).toFixed(2);
-    } else if (destination === "reimbursement") {
-      category = "reimbursement";
-    } else {
-      category = "income";
-    }
+    // Money in is income (yours: pay, a gift) or a reimbursement (pays back a
+    // purchase, so it nets against spending under the tag it pays back).
+    category = formData.get("moneyKind") === "reimbursement" ? "reimbursement" : "income";
   } else if (categoryRaw === "auto") {
     const rules = await merchantRulesFor(groupId, postedOn);
     const c = categorizeMerchant(merchant ?? "", rules, Number(amount), postedOn);
@@ -242,7 +258,7 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
       autoRecurringId = null;
       transferAccountId = t.transferAccountId;
     }
-  } else if (TXN_CATEGORIES.has(categoryRaw) && categoryRaw !== "income") {
+  } else if (TXN_CATEGORIES.has(categoryRaw) && categoryRaw !== "income" && categoryRaw !== "reimbursement") {
     category = categoryRaw;
   } else {
     category = "discretionary";
@@ -266,9 +282,11 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
     checkTransfer(await validAccount(groupId, accountId), into, accountId);
     transferAccountId = into!.id;
   }
-  const fundId = category === "fund"
-    ? await validFund(groupId, parseBoundedInt(formData.get("fundId"), 1, 2 ** 31))
-    : null;
+  // A fund purchase draws its fund; income can be put into one instead.
+  const fundId =
+    category === "fund" || category === "income"
+      ? await validFund(groupId, parseBoundedInt(formData.get("fundId"), 1, 2 ** 31))
+      : null;
   // Auto-detect already resolved a bill link; an explicit fixed/amortized pick
   // takes it from the form.
   const recurringExpenseId =
@@ -283,41 +301,20 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
     transferAccountId,
     postedOn,
     merchant,
-    amount: storeAmount,
-    originalAmount: storeAmount,
+    amount,
+    originalAmount: amount,
     category,
     fundId,
     recurringExpenseId,
     spendCategory:
       category === "transfer"
         ? null
-        : await resolveSpendCategory(groupId, category, merchant, recurringExpenseId),
+        : category === "reimbursement"
+          ? parseTag(formData.get("spendCategory"))
+          : await resolveSpendCategory(groupId, category, merchant, recurringExpenseId),
     source: "manual",
     note: parseStr(formData.get("note")),
   });
-
-  // Income can ALSO bump a fund in one go (grandma's $100 → Lauren's envelope).
-  // Funds are play money, so this adjusts the fund's balance DIRECTLY — not a
-  // second ledger row, so no phantom "+$100 / −$100" pair.
-  if (kind === "income") {
-    const bumpFundId = await validFund(
-      groupId,
-      parseBoundedInt(formData.get("depositFundId"), 1, 2 ** 31),
-    );
-    if (bumpFundId !== null) {
-      const [f] = await db
-        .select({ b: funds.startingBalance })
-        .from(funds)
-        .where(eq(funds.id, bumpFundId))
-        .limit(1);
-      if (f) {
-        await db
-          .update(funds)
-          .set({ startingBalance: (Number(f.b) + Number(amount)).toFixed(2) })
-          .where(eq(funds.id, bumpFundId));
-      }
-    }
-  }
   revalidatePath(BUDGET);
 }
 
