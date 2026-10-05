@@ -7,7 +7,7 @@
 //   node scripts/live.mjs scripts/atlas-apply.mjs <changes.json> [--yes]
 //
 // The file is a JSON list; each entry is one of:
-//   { "bill": 11, "addPatterns": ["TEXT"] }
+//   { "bill": 11, "addPatterns": ["TEXT"] }      (or "removePatterns"; both may appear in one entry)
 //   { "bill": 1, "fix": { "amount": 84.37, "dueMonths": [1, 7] } }    the whole span, like Atlas "fix"
 //      (fix also takes name, paymentsPerYear, isEstimate, and paidFrom: an account's name)
 //   { "add": { "like": 1, "name": "…", "amount": 16.23, "paymentsPerYear": 12, "dueMonths": null,
@@ -69,17 +69,19 @@ async function main() {
 
   for (const [i, c] of changes.entries()) {
     const n = `${i + 1}.`;
-    if (c.addPatterns) {
+    if (c.addPatterns || c.removePatterns) {
       const b = billFor(c.bill);
       const have = b.merchant_patterns ?? [];
-      const fresh = c.addPatterns
+      const drop = new Set((c.removePatterns ?? []).map((p) => String(p).trim().toLowerCase()));
+      const kept = have.filter((h) => !drop.has(h.toLowerCase()));
+      const fresh = (c.addPatterns ?? [])
         .map((p) => String(p).trim())
-        .filter((p) => p && !have.some((h) => h.toLowerCase() === p.toLowerCase()));
-      if (!fresh.length) {
-        console.log(`${n} ${b.name} (bill ${b.id}): already has ${list(c.addPatterns)}.`);
+        .filter((p) => p && !kept.some((h) => h.toLowerCase() === p.toLowerCase()));
+      if (!fresh.length && kept.length === have.length) {
+        console.log(`${n} ${b.name} (bill ${b.id}): patterns already ${list(have)}.`);
         continue;
       }
-      const next = [...have, ...fresh];
+      const next = [...kept, ...fresh];
       console.log(`${n} ${b.name} (bill ${b.id}): patterns ${list(have)} -> ${list(next)}`);
       if (write) await sql`UPDATE recurring_expenses SET merchant_patterns = ${JSON.stringify(next)}::jsonb WHERE id = ${b.id}`;
     } else if (c.fix) {
