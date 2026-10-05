@@ -215,7 +215,7 @@ async function auditGroup(groupId) {
             date: r.date,
             account: accountName.get(r.account_id),
             amount: money(r.amount),
-            text: clip(r.name, 60),
+            text: r.name,
             merchant: clip(r.merchant_name ?? "", 30),
             plaid: r.pfc_detailed ?? "",
             "files under today":
