@@ -34,7 +34,8 @@ export function rulesForFlow<T extends SpendRule>(rules: T[], flow: Flow): T[] {
  * The tag for a transaction:
  *  - fixed / amortized → the linked bill's ATLAS category, else a spending rule
  *  - other money out (discretionary, savings, fund) → the longest spending rule
- *  - money in (income, reimbursement) → the longest income rule
+ *  - income → the longest income rule
+ *  - reimbursement → null: it takes the tag of what it pays back, picked by hand
  *  - Excluded → null (never counted, so never tagged)
  */
 export function spendCategoryFor(
@@ -44,7 +45,7 @@ export function spendCategoryFor(
   rules: SpendRule[],
 ): string | null {
   const flow = flowOf(engineCategory);
-  if (!flow) return null;
+  if (!flow || engineCategory === "reimbursement") return null;
   if ((engineCategory === "fixed" || engineCategory === "amortized") && billCategory) {
     return billCategory;
   }

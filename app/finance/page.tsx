@@ -32,7 +32,7 @@ import { listProfiles } from "@/lib/queries/profiles";
 import { listBankAlerts } from "@/lib/queries/finance-plaid";
 import { plaidConfigured } from "@/lib/plaid/client";
 import { currentMonthISO, lastDayOfMonth } from "@/lib/finance/parse";
-import { OUT_CATEGORIES, isMoneyOut, isUnlinkedBillPayment } from "@/lib/finance/cashflow";
+import { OUT_CATEGORIES, REIMBURSEMENT, isMoneyOut, isUnlinkedBillPayment } from "@/lib/finance/cashflow";
 import { getGroupTimezone } from "@/lib/queries/group";
 import { formatMonth } from "@/lib/format";
 import AtlasMonthSwitcher from "@/components/finance/AtlasMonthSwitcher";
@@ -133,12 +133,13 @@ export default async function BudgetPage({
     .map(([merchant, { total, count }]) => ({ merchant, total, count }));
 
   // Discretionary by tag — the same rows the table's lane=discretionary slice
-  // filter keeps (refunds net in, unreadable rows stay out), so a tapped slice's
-  // list adds up to it.
+  // filter keeps (refunds and reimbursements net in, unreadable rows stay out),
+  // so a tapped slice's list adds up to it.
   const discTagTotals = new Map<string | null, number>();
   for (const r of rows) {
-    if (r.category !== "discretionary" || r.needsReview) continue;
-    discTagTotals.set(r.spendCategory, (discTagTotals.get(r.spendCategory) ?? 0) + r.amount);
+    if ((r.category !== "discretionary" && r.category !== REIMBURSEMENT) || r.needsReview) continue;
+    const signed = r.category === REIMBURSEMENT ? -r.amount : r.amount;
+    discTagTotals.set(r.spendCategory, (discTagTotals.get(r.spendCategory) ?? 0) + signed);
   }
   const discTags = [...discTagTotals.entries()]
     .map(([tag, amount]) => ({ tag, amount: Math.round(amount * 100) / 100 }))
@@ -146,9 +147,12 @@ export default async function BudgetPage({
     .sort((a, b) => b.amount - a.amount);
 
   // Money out by lane for All money's Type view — the same sums as its totals.
+  // Reimbursements (a negative lane) net into Discretionary, like the budget.
+  const paidBack = lanes.find((l) => l.category === REIMBURSEMENT)?.moneyOut ?? 0;
   const types = lanes
-    .filter((l) => (OUT_CATEGORIES as readonly string[]).includes(l.category) && l.moneyOut > 0)
-    .map((l) => ({ tag: l.category, amount: l.moneyOut }))
+    .filter((l) => (OUT_CATEGORIES as readonly string[]).includes(l.category) && l.category !== REIMBURSEMENT)
+    .map((l) => ({ tag: l.category, amount: l.moneyOut + (l.category === "discretionary" ? paidBack : 0) }))
+    .filter((l) => l.amount > 0)
     .sort((a, b) => b.amount - a.amount);
 
   // History drilled into this month. Its default range is this year, so an

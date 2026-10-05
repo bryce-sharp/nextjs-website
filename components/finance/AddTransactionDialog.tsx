@@ -22,16 +22,17 @@ import { CATEGORY_OPTIONS, billsActiveOn, type TxnFund, type TxnBill } from "./T
 import type { TxnAccount } from "./TransactionsTable";
 import { todayISO } from "@/lib/finance/parse";
 
-// Quick-add for what the bank didn't text — a gas-station swipe, INCOME
-// (a paycheck, grandma's $100), or a TRANSFER between your own accounts
-// (Ally → Schwab). The toggle picks the lane; income and transfers skip the
-// category picker (neither is spend). Defaults to today.
+// Quick-add for what the bank didn't text — a gas-station swipe, MONEY IN (a
+// paycheck, grandma's $100, a friend paying back dinner), or a TRANSFER between
+// your own accounts (Ally → Schwab). The toggle picks the side; money in and
+// transfers skip the spending category picker. Defaults to today.
 export default function AddTransactionDialog({
   funds,
   bills,
   accounts,
   merchants,
   sources,
+  categories,
   onClose,
 }: {
   funds: TxnFund[];
@@ -39,16 +40,16 @@ export default function AddTransactionDialog({
   accounts: TxnAccount[];
   merchants: string[];
   sources: string[];
+  categories: string[]; // spending tags, for what a reimbursement pays back
   onClose: () => void;
 }) {
   const [kind, setKind] = React.useState<"expense" | "income" | "transfer">("expense");
   // Default "auto" = let the merchant categorizer decide (same as SMS); you
   // only pick a category to override for the special lanes.
   const [category, setCategory] = React.useState("auto");
-  // Income destination: "track" = recorded, no budget effect; "spend" = adds to
-  // this month's Left-to-Spend; "reimbursement" = pays back a purchase (also
-  // credits Left-to-Spend). (A fund bump is separate + optional, below.)
-  const [destination, setDestination] = React.useState("track");
+  // Money in is income (yours; optionally put into a fund) or a reimbursement
+  // (pays back a purchase, so it nets against that spending).
+  const [moneyKind, setMoneyKind] = React.useState<"income" | "reimbursement">("income");
   const [date, setDate] = React.useState(todayISO);
   const [error, setError] = React.useState<string | null>(null);
   // Only the bill versions in effect on the entered date.
@@ -84,7 +85,7 @@ export default function AddTransactionDialog({
               onChange={(_, v: "expense" | "income" | "transfer" | null) => v && setKind(v)}
             >
               <ToggleButton value="expense">Expense</ToggleButton>
-              <ToggleButton value="income">Income</ToggleButton>
+              <ToggleButton value="income">Money in</ToggleButton>
               {accounts.length > 1 ? <ToggleButton value="transfer">Transfer</ToggleButton> : null}
             </ToggleButtonGroup>
 
@@ -108,42 +109,45 @@ export default function AddTransactionDialog({
             ) : (
               <SuggestField
                 name="merchant"
-                label={kind === "income" ? "Source" : "Merchant"}
+                label={kind === "income" ? (moneyKind === "income" ? "Source" : "From") : "Merchant"}
                 options={kind === "income" ? sources : merchants}
-                placeholder={kind === "income" ? "e.g. Paycheck, Grandma" : "e.g. Shell, gas"}
+                placeholder={
+                  kind === "income"
+                    ? moneyKind === "income"
+                      ? "e.g. Paycheck, Grandma"
+                      : "e.g. Sam, for dinner"
+                    : "e.g. Shell, gas"
+                }
               />
             )}
 
             {kind === "income" ? (
               <>
                 <TextField
-                  name="destination"
-                  label="What should this money do?"
+                  name="moneyKind"
+                  label="What is this money?"
                   select
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
+                  value={moneyKind}
+                  onChange={(e) => setMoneyKind(e.target.value === "reimbursement" ? "reimbursement" : "income")}
                   helperText={
-                    destination === "spend"
-                      ? "Adds to this month's Left-to-Spend."
-                      : destination === "reimbursement"
-                        ? "Pays you back for a purchase — credits this month's Left-to-Spend."
-                        : "Just recorded — no effect on the budget."
+                    moneyKind === "income"
+                      ? "Counts as money in. It does not change this month's budget."
+                      : "Pays you back for a purchase: lowers your spending in the tag it pays back and raises what is left to spend. Not income."
                   }
                 >
-                  <MenuItem value="track">Just track it</MenuItem>
-                  <MenuItem value="spend">Spend it this month</MenuItem>
-                  <MenuItem value="reimbursement">It&apos;s a reimbursement</MenuItem>
+                  <MenuItem value="income">Income (yours to keep)</MenuItem>
+                  <MenuItem value="reimbursement">Reimbursement (pays back a purchase)</MenuItem>
                 </TextField>
-                {funds.length > 0 ? (
+                {moneyKind === "income" && funds.length > 0 ? (
                   <TextField
-                    name="depositFundId"
-                    label="Also add to a fund (optional)"
+                    name="fundId"
+                    label="Put it in a fund (optional)"
                     select
                     defaultValue=""
-                    helperText="Bumps that envelope's balance — play money, not a real transaction."
+                    helperText="Still counts as income; the fund keeps it until you spend it, in any month."
                   >
                     <MenuItem value="">
-                      <em>Don&apos;t add to a fund</em>
+                      <em>No fund</em>
                     </MenuItem>
                     {funds.map((f) => (
                       <MenuItem key={f.id} value={f.id}>
@@ -151,6 +155,14 @@ export default function AddTransactionDialog({
                       </MenuItem>
                     ))}
                   </TextField>
+                ) : null}
+                {moneyKind === "reimbursement" ? (
+                  <SuggestField
+                    name="spendCategory"
+                    label="What it pays back"
+                    options={categories}
+                    placeholder="Dining, Groceries…"
+                  />
                 ) : null}
               </>
             ) : null}

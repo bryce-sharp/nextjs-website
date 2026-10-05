@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gte, lt, lte, isNull, isNotNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, lte, isNull, isNotNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   transactions,
@@ -148,7 +148,7 @@ export async function getBudgetMonthForGroup(
     needsReview: t.needsReview,
   }));
 
-  // Funds + draws before this month.
+  // Funds + what moved them before this month: purchases draw, income put in adds.
   const groupFunds = await db
     .select({
       id: funds.id,
@@ -161,19 +161,21 @@ export async function getBudgetMonthForGroup(
     .where(and(eq(funds.groupId, groupId), isNull(funds.closedAt)));
 
   const priorFundDraws = await db
-    .select({ fundId: transactions.fundId, amount: transactions.amount })
+    .select({ fundId: transactions.fundId, amount: transactions.amount, category: transactions.category })
     .from(transactions)
     .where(
       and(
         eq(transactions.groupId, groupId),
-        eq(transactions.category, "fund"),
+        inArray(transactions.category, ["fund", "income"]),
+        isNotNull(transactions.fundId),
         lt(transactions.postedOn, start),
       ),
     );
   const drawnBefore = new Map<number, number>();
   for (const d of priorFundDraws) {
     if (d.fundId != null) {
-      drawnBefore.set(d.fundId, (drawnBefore.get(d.fundId) ?? 0) + cents(d.amount));
+      const c = d.category === "income" ? -cents(d.amount) : cents(d.amount);
+      drawnBefore.set(d.fundId, (drawnBefore.get(d.fundId) ?? 0) + c);
     }
   }
 
@@ -252,7 +254,8 @@ function monthReportInput(view: BudgetView, lanes: CategoryFlow[]): MonthReportI
     },
     actual: {
       income: inn("income"),
-      reimbursed: inn("reimbursement"),
+      // Reimbursements net against money out, so their lane's money out is negative.
+      reimbursed: -out("reimbursement"),
       discretionary: out("discretionary"),
       bills: out("fixed") + out("amortized"),
       offBudget: out("savings"),

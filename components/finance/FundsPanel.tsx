@@ -156,7 +156,8 @@ export default function FundsPanel({
       {editable ? (
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2 }}>
           To spend from a fund, set a transaction&apos;s category to{" "}
-          <strong>Fund</strong> and pick it — that draws the balance down.
+          <strong>Fund</strong> and pick it — that draws the balance down. To save money
+          in one, mark income as <strong>Put it in a fund</strong>.
         </Typography>
       ) : null}
 

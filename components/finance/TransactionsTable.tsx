@@ -12,34 +12,27 @@ import TableCell from "@mui/material/TableCell";
 import TableContainer from "@mui/material/TableContainer";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
-import Menu from "@mui/material/Menu";
-import MenuItem from "@mui/material/MenuItem";
-import ListItemIcon from "@mui/material/ListItemIcon";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
-import useMediaQuery from "@mui/material/useMediaQuery";
-import { useTheme } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
-import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import TransactionRow, {
   onPhone,
   type TxnRowData,
   type TxnFund,
   type TxnBill,
 } from "./TransactionRow";
-import TransactionDetailDialog from "./TransactionDetailDialog";
+import TransactionDialog from "./TransactionDialog";
 import AddTransactionDialog from "./AddTransactionDialog";
 import CategoryEditPopover from "./CategoryEditPopover";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   LANE_LABELS,
+  REIMBURSEMENT,
   UNTAGGED,
   flowOf,
   isMoneyOut,
   isUnlinkedBillPayment,
 } from "@/lib/finance/cashflow";
-import { deleteTransactionAction } from "@/app/actions/finance-budget";
 import {
   loadMoreTransactionsAction,
   setSpendCategoryAction,
@@ -52,9 +45,9 @@ type Anchored = { txn: TxnRowData; anchor: HTMLElement };
 
 // The transaction ledger — the app's center of gravity, shared by the budget
 // month and the all-time explorer so both edit the same way: tap the spend chip
-// to tag it, or open the ⋮ for the fuller edit + delete. The budget hands over
-// its whole month; the explorer passes `filters`, and older pages stream in
-// via a server action as the sentinel scrolls into view.
+// to tag it, or click the row for its details, the fuller edit, and delete. The
+// budget hands over its whole month; the explorer passes `filters`, and older
+// pages stream in via a server action as the sentinel scrolls into view.
 export default function TransactionsTable({
   initialRows,
   initialCursor = null,
@@ -91,16 +84,12 @@ export default function TransactionsTable({
   const paged = filters !== undefined;
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  // Phones hide the ⋮ (TransactionRow), so tapping the row opens its actions.
-  const isPhone = useMediaQuery(useTheme().breakpoints.down("sm"));
   const [rows, setRows] = React.useState(initialRows);
   const [cursor, setCursor] = React.useState(initialCursor);
   const [loading, setLoading] = React.useState(false);
-  const [menu, setMenu] = React.useState<Anchored | null>(null);
   const [tagging, setTagging] = React.useState<Anchored | null>(null);
   const [detail, setDetail] = React.useState<TxnRowData | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
-  const [, startTransition] = React.useTransition();
   const sentinel = React.useRef<HTMLDivElement | null>(null);
   const loadingRef = React.useRef(false); // guards overlapping fetches
 
@@ -138,7 +127,10 @@ export default function TransactionsTable({
       : rows.filter(
           (r) =>
             isMoneyOut(r.category, r.amount, r.needsReview) &&
-            (laneFilter == null || r.category === laneFilter) &&
+            // Reimbursements net into Discretionary, so its slice lists them too.
+            (laneFilter == null ||
+              r.category === laneFilter ||
+              (laneFilter === "discretionary" && r.category === REIMBURSEMENT)) &&
             (tagFilter == null ||
               (tagFilter === UNTAGGED ? r.spendCategory == null : r.spendCategory === tagFilter)),
         );
@@ -159,21 +151,8 @@ export default function TransactionsTable({
     window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
   }
 
-  const openMenu = editable
-    ? (txn: TxnRowData, anchor: HTMLElement) => setMenu({ txn, anchor })
-    : undefined;
-
   function patchRow(row: TxnRowData) {
     setRows((prev) => prev.map((r) => (r.id === row.id ? row : r)));
-  }
-
-  function del(txn: TxnRowData) {
-    setMenu(null);
-    if (!window.confirm(`Delete this ${txn.merchant ?? "transaction"}?`)) return;
-    startTransition(async () => {
-      await deleteTransactionAction(txn.id, new FormData());
-      setRows((prev) => prev.filter((r) => r.id !== txn.id));
-    });
   }
 
   // Optimistic: update the tapped row now (and its merchant-siblings when
@@ -283,7 +262,6 @@ export default function TransactionsTable({
                 <TableCell>Merchant</TableCell>
                 <TableCell align="right">Amount</TableCell>
                 <TableCell>Category</TableCell>
-                {editable ? <TableCell align="right" /> : null}
               </TableRow>
             </TableHead>
             <TableBody sx={onPhone({ display: "block" })}>
@@ -293,8 +271,7 @@ export default function TransactionsTable({
                   txn={t}
                   funds={funds}
                   accounts={accounts}
-                  onMenu={openMenu}
-                  onRowClick={isPhone ? openMenu : undefined}
+                  onRowClick={(txn) => setDetail(txn)}
                   onEditCategory={editable ? (txn, anchor) => setTagging({ txn, anchor }) : undefined}
                 />
               ))}
@@ -315,37 +292,6 @@ export default function TransactionsTable({
         </Box>
       ) : null}
 
-      <Menu
-        anchorEl={menu?.anchor}
-        open={Boolean(menu)}
-        onClose={() => setMenu(null)}
-        // Anchored to a whole row on phones: drop below it, flush right.
-        {...(isPhone
-          ? {
-              anchorOrigin: { vertical: "bottom", horizontal: "right" },
-              transformOrigin: { vertical: "top", horizontal: "right" },
-            }
-          : {})}
-      >
-        <MenuItem
-          onClick={() => {
-            if (menu) setDetail(menu.txn);
-            setMenu(null);
-          }}
-        >
-          <ListItemIcon>
-            <EditOutlinedIcon fontSize="small" />
-          </ListItemIcon>
-          Edit details
-        </MenuItem>
-        <MenuItem onClick={() => menu && del(menu.txn)} sx={{ color: "error.main" }}>
-          <ListItemIcon>
-            <DeleteOutlineIcon fontSize="small" color="error" />
-          </ListItemIcon>
-          Delete
-        </MenuItem>
-      </Menu>
-
       {tagging ? (
         <CategoryEditPopover
           anchorEl={tagging.anchor}
@@ -360,14 +306,18 @@ export default function TransactionsTable({
         />
       ) : null}
       {detail ? (
-        <TransactionDetailDialog
+        <TransactionDialog
           txn={detail}
+          editable={editable}
           funds={funds}
           accounts={accounts}
           bills={bills}
           merchants={merchants}
           sources={sources}
+          categories={categories}
+          incomeCategories={incomeCategories}
           onSaved={patchRow}
+          onDeleted={(id) => setRows((prev) => prev.filter((r) => r.id !== id))}
           onClose={() => setDetail(null)}
         />
       ) : null}
@@ -378,6 +328,7 @@ export default function TransactionsTable({
           accounts={accounts}
           merchants={merchants}
           sources={sources}
+          categories={categories}
           onClose={() => setAddOpen(false)}
         />
       ) : null}

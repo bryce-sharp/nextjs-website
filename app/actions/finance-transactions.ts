@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { requireEditor } from "@/lib/auth";
 import { requireGroupId } from "@/lib/session";
 import {
+  getTransactionDetail,
   searchTransactions,
+  type TxnDetail,
   type TxnFilters,
   type TxnPage,
 } from "@/lib/queries/finance-transactions";
@@ -21,6 +23,11 @@ export async function loadMoreTransactionsAction(
   cursor: string | null,
 ): Promise<TxnPage> {
   return searchTransactions(filters, cursor);
+}
+
+/** One transaction's details for its popup: where it came from, when, and the bank's wording. */
+export async function getTransactionDetailAction(id: number): Promise<TxnDetail | null> {
+  return getTransactionDetail(await requireGroupId(), id);
 }
 
 /**

@@ -176,13 +176,17 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
         .where(inArray(transactions.id, [ledgerId, ...splitIds]));
       return;
     }
-    const amount = ledgerAmount(kind, Number(r.amount));
     const [row] = await db
       .select({ amount: transactions.amount, originalAmount: transactions.originalAmount })
       .from(transactions)
       .where(eq(transactions.id, ledgerId))
       .limit(1);
     if (!row) return;
+    // The bank owns the size; the row keeps its sign, so a refund re-filed as a
+    // reimbursement (stored positive) stays positive.
+    const bank = Number(ledgerAmount(kind, Number(r.amount)));
+    const sign = Math.sign(Number(row.originalAmount)) || Math.sign(bank) || 1;
+    const amount = (sign * Math.abs(bank)).toFixed(2);
     const untouched = Number(row.amount) === Number(row.originalAmount);
     await db
       .update(transactions)

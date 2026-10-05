@@ -3,12 +3,10 @@
 import type * as React from "react";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
 import Box from "@mui/material/Box";
-import MoreVertIcon from "@mui/icons-material/MoreVert";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import type { SxProps, Theme } from "@mui/material/styles";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -79,7 +77,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   ignored: "Excluded",
 };
 
-// Money IN (raises what you can spend) vs OUT vs neutral transfers.
+// Money IN (into your pocket) vs OUT vs neutral transfers.
 const INFLOW = new Set(["income", "reimbursement"]);
 const NEUTRAL = new Set(["ignored", "transfer"]);
 // Direction of the row by MEANING, not raw sign: money into your pocket OR into
@@ -103,16 +101,14 @@ function chipColor(category: string): "primary" | "success" | "warning" | "defau
   return "warning";
 }
 
-// A display-only transaction row. All editing happens behind the ⋮ menu (its
-// dialog), so the table reads cleanly: date · merchant · formatted amount
-// (green in / red out) · category chip. `onMenu` present ⇒ editable. Below
-// `sm` it restacks into two lines — merchant · amount over date · category —
-// so a phone never scrolls sideways; the ⋮ hides and the row itself is the tap.
+// A display-only transaction row: date · merchant · formatted amount (green in
+// / red out) · category chip. Clicking it opens its details and edit popup; the
+// tag chip is its own tap target. Below `sm` it restacks into two lines —
+// merchant · amount over date · category — so a phone never scrolls sideways.
 export default function TransactionRow({
   txn,
   funds,
   accounts = [],
-  onMenu,
   onRowClick,
   onEditCategory,
 }: {
@@ -120,8 +116,7 @@ export default function TransactionRow({
   funds: TxnFund[];
   /** Names for a transfer's "from → into" line. */
   accounts?: { id: number; name: string }[];
-  onMenu?: (txn: TxnRowData, anchor: HTMLElement) => void;
-  // Present ⇒ tapping anywhere on the row opens its actions (phones).
+  // Present ⇒ clicking anywhere on the row opens its details.
   onRowClick?: (txn: TxnRowData, anchor: HTMLElement) => void;
   // Present ⇒ the spend-category chip is tappable to set/change it.
   onEditCategory?: (txn: TxnRowData, anchor: HTMLElement) => void;
@@ -138,7 +133,7 @@ export default function TransactionRow({
   // Every counted row is taggable — spending tags on money out, income tags on
   // money in. Excluded rows are never counted, so never tagged.
   const editCat = onEditCategory && flowOf(txn.category) ? onEditCategory : undefined;
-  // The chip has its own tap target, so it must not also open the row's actions.
+  // The chip has its own tap target, so it must not also open the row's details.
   const tag = (e: React.MouseEvent<HTMLElement>) => {
     e.stopPropagation();
     editCat?.(txn, e.currentTarget);
@@ -194,8 +189,8 @@ export default function TransactionRow({
             <Tooltip
               title={
                 txn.source === "sms"
-                  ? "Couldn't read this one — open the ⋮ menu to set its details"
-                  : "Needs a look: open the ⋮ menu to check its details"
+                  ? "Couldn't read this one — click it to set its details"
+                  : "Needs a look: click it to check its details"
               }
             >
               <WarningAmberIcon fontSize="small" color="warning" />
@@ -283,17 +278,6 @@ export default function TransactionRow({
         </Stack>
       </TableCell>
 
-      {onMenu ? (
-        <TableCell align="right" sx={onPhone({ display: "none" })}>
-          <IconButton
-            size="small"
-            onClick={(e) => onMenu(txn, e.currentTarget)}
-            aria-label="Transaction actions"
-          >
-            <MoreVertIcon fontSize="small" />
-          </IconButton>
-        </TableCell>
-      ) : null}
     </TableRow>
   );
 }
