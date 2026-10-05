@@ -9,7 +9,7 @@
 // The file is a JSON list; each entry is one of:
 //   { "bill": 11, "addPatterns": ["TEXT"] }
 //   { "bill": 1, "fix": { "amount": 84.37, "dueMonths": [1, 7] } }    the whole span, like Atlas "fix"
-//      (fix also takes name, paymentsPerYear, isEstimate)
+//      (fix also takes name, paymentsPerYear, isEstimate, and paidFrom: an account's name)
 //   { "add": { "like": 1, "name": "…", "amount": 16.23, "paymentsPerYear": 12, "dueMonths": null,
 //              "from": "2026-09" } }                                  copies the rest from bill "like"
 //   { "refile": [2101, 2102], "toBill": 17 }                          toBill may be a current bill's name
@@ -55,6 +55,8 @@ async function main() {
            start_date::text AS start_date, end_date::text AS end_date
     FROM recurring_expenses`;
   const byId = new Map(bills.map((b) => [b.id, b]));
+  const accounts = await sql`SELECT id, group_id, name, archived_at IS NOT NULL AS archived FROM financial_accounts`;
+  const accountName = (id) => accounts.find((a) => a.id === id)?.name ?? "no account";
   const groups = new Set();
   const billFor = (id) => {
     const b = byId.get(id);
@@ -82,10 +84,21 @@ async function main() {
     } else if (c.fix) {
       const b = billFor(c.bill);
       const f = c.fix;
-      const unknown = Object.keys(f).filter((k) => !["amount", "name", "paymentsPerYear", "dueMonths", "isEstimate"].includes(k));
+      const unknown = Object.keys(f).filter(
+        (k) => !["amount", "name", "paymentsPerYear", "dueMonths", "isEstimate", "paidFrom"].includes(k),
+      );
       if (unknown.length) throw new Error(`${n} fix cannot change ${unknown.join(", ")}.`);
       if ("dueMonths" in f && !isMonthList(f.dueMonths)) throw new Error(`${n} dueMonths must be months 1-12 or null.`);
       if ("amount" in f && !(Number(f.amount) > 0)) throw new Error(`${n} amount must be positive.`);
+      let paidFrom = b.paid_from_account_id;
+      if ("paidFrom" in f) {
+        const wanted = String(f.paidFrom).toLowerCase();
+        const acct = accounts.find(
+          (a) => a.group_id === b.group_id && !a.archived && (a.id === f.paidFrom || a.name.toLowerCase() === wanted),
+        );
+        if (!acct) throw new Error(`${n} no open account "${f.paidFrom}" in this household.`);
+        paidFrom = acct.id;
+      }
       const next = {
         name: f.name ?? b.name,
         amount: "amount" in f ? Number(f.amount) : b.amount,
@@ -99,6 +112,8 @@ async function main() {
         next.paymentsPerYear !== b.payments_per_year && `payments a year ${b.payments_per_year} -> ${next.paymentsPerYear}`,
         months(next.dueMonths) !== months(b.due_months) && `due months ${months(b.due_months)} -> ${months(next.dueMonths)}`,
         next.isEstimate !== b.is_estimate && `estimate ${b.is_estimate} -> ${next.isEstimate}`,
+        paidFrom !== b.paid_from_account_id &&
+          `paid from ${accountName(b.paid_from_account_id)} -> ${accountName(paidFrom)}`,
       ].filter(Boolean);
       if (!diff.length) {
         console.log(`${n} ${b.name} (bill ${b.id}): already up to date.`);
@@ -110,7 +125,7 @@ async function main() {
           UPDATE recurring_expenses
           SET name = ${next.name}, amount = ${money(next.amount)}, payments_per_year = ${next.paymentsPerYear},
               due_months = ${next.dueMonths?.length ? JSON.stringify(next.dueMonths) : null}::jsonb,
-              is_estimate = ${next.isEstimate}
+              is_estimate = ${next.isEstimate}, paid_from_account_id = ${paidFrom}
           WHERE id = ${b.id}`;
       }
     } else if (c.add) {
