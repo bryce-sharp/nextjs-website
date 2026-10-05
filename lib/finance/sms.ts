@@ -104,6 +104,13 @@ export type MerchantRule = {
   /** The bill's ATLAS category — a matched fixed/amortized txn inherits it as
    *  its spend-category (F4c). Null if the bill has no category set. */
   category: string | null;
+  /** Expected amount per payment. When several bills match the same text
+   *  (tithing and offerings at one church, two subscriptions from one store),
+   *  the closest amount picks the bill. */
+  amount?: number | null;
+  /** Named due months (1–12). Between bills that match at the same amount (two
+   *  people's identical plans), the one due nearest the charge's month wins. */
+  dueMonths?: number[] | null;
 };
 
 export type Categorized = {
@@ -111,16 +118,31 @@ export type Categorized = {
   recurringExpenseId: number | null;
 };
 
+/** Months between a charge and a bill's nearest named due month; 0 when the bill names none. */
+function monthGap(dueMonths: number[] | null, month: number | null): number {
+  if (!month || !dueMonths?.length) return 0;
+  return Math.min(
+    ...dueMonths.map((due) => {
+      const gap = Math.abs(due - month) % 12;
+      return Math.min(gap, 12 - gap);
+    }),
+  );
+}
+
 /**
  * Categorize purely by MERCHANT: fixed merchant match → amortized match →
  * discretionary. Patterns are matched longest-first across ALL rules so
  * "SPECTRUM MOBILE" beats "SPECTRUM", case-insensitively, substring-style.
  * Anything that isn't a known recurring bill lands in discretionary; the user
- * re-files reimbursements / savings / funds in the app.
+ * re-files reimbursements / savings / funds in the app. Given the amount, an
+ * equally specific match on several bills goes to the closest expected amount,
+ * and at equal amounts to the bill due nearest the charge's date (YYYY-MM-DD).
  */
 export function categorizeMerchant(
   merchant: string,
   rules: MerchantRule[],
+  amount?: number,
+  onDate?: string,
 ): Categorized {
   const m = merchant.toLowerCase();
   const flat = rules
@@ -129,6 +151,8 @@ export function categorizeMerchant(
         pattern: p.toLowerCase(),
         recurringExpenseId: r.recurringExpenseId,
         fixed: r.paymentsPerYear === 12,
+        amount: r.amount ?? null,
+        dueMonths: r.dueMonths ?? null,
       })),
     )
     .filter((r) => r.pattern.length > 0)
@@ -136,15 +160,30 @@ export function categorizeMerchant(
 
   // Fixed rules win over amortized at equal specificity (gist checked fixed
   // first) — implemented as: first pass fixed-only, second pass amortized.
+  let winner: (typeof flat)[number] | undefined;
   for (const pass of [true, false]) {
-    for (const r of flat) {
-      if (r.fixed === pass && m.includes(r.pattern)) {
-        return {
-          category: pass ? "fixed" : "amortized",
-          recurringExpenseId: r.recurringExpenseId,
-        };
-      }
+    winner = flat.find((r) => r.fixed === pass && m.includes(r.pattern));
+    if (winner) break;
+  }
+  if (!winner) return { category: "discretionary", recurringExpenseId: null };
+
+  if (amount != null && Number.isFinite(amount)) {
+    const length = winner.pattern.length;
+    const ties = flat.filter((r) => r.pattern.length === length && r.amount != null && m.includes(r.pattern));
+    if (new Set(ties.map((t) => t.recurringExpenseId)).size > 1) {
+      const target = Math.abs(amount);
+      const month = onDate ? Number(onDate.slice(5, 7)) : null;
+      const cents = (r: (typeof ties)[number]) => Math.round(Math.abs(r.amount! - target) * 100);
+      winner = ties.reduce((best, r) => {
+        const closer = cents(r) - cents(best);
+        return closer < 0 || (closer === 0 && monthGap(r.dueMonths, month) < monthGap(best.dueMonths, month))
+          ? r
+          : best;
+      });
     }
   }
-  return { category: "discretionary", recurringExpenseId: null };
+  return {
+    category: winner.fixed ? "fixed" : "amortized",
+    recurringExpenseId: winner.recurringExpenseId,
+  };
 }

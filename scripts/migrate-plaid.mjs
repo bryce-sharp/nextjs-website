@@ -1,7 +1,8 @@
 // One-time: bank sync (Plaid). Adds
 //   plaid_items, plaid_accounts, plaid_transactions — bank logins, their
 //     accounts, and the bank's raw copy of each transaction (dismissed_at
-//     remembers rows the household deleted)
+//     remembers rows the household deleted; split_ledger_ids, payments the
+//     household recorded in parts)
 //   transactions.bank_status — null | pending | posted, from the bank feed
 // All additive, so existing rows are untouched. Idempotent. Constraint names
 // match Drizzle's, so db:push sees these tables as already in sync.
@@ -90,9 +91,11 @@ async function main() {
       removed_at timestamptz,
       applied_at timestamptz,
       dismissed_at timestamptz,
+      split_ledger_ids integer[],
       created_at timestamptz NOT NULL DEFAULT now()
     )`;
   await sql`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS dismissed_at timestamptz`;
+  await sql`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS split_ledger_ids integer[]`;
   await sql`CREATE INDEX IF NOT EXISTS idx_plaid_txn_ledger ON plaid_transactions (ledger_transaction_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_plaid_txn_account_date ON plaid_transactions (plaid_account_id, date)`;
 

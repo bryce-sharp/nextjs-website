@@ -9,7 +9,6 @@ import {
   financialAccounts,
   recurringExpenses,
   profiles,
-  plaidTransactions,
 } from "@/lib/db/schema";
 import { requireEditor } from "@/lib/auth";
 import { requireGroupId } from "@/lib/session";
@@ -18,6 +17,7 @@ import { parseMoney, parseStr, parseInt as parseBoundedInt, todayISO } from "@/l
 import { categorizeMerchant } from "@/lib/finance/sms";
 import { asTransfer, merchantRulesFor, resolveSpendCategory, transferRulesFor } from "@/lib/finance/ingest";
 import { toTxnRow } from "@/lib/queries/finance-transactions";
+import { releaseBankLinks } from "@/lib/plaid/apply";
 import type { TxnRowData } from "@/components/finance/TransactionRow";
 
 // Budget writes — HOUSEHOLD data (requireEditor). The transaction TABLE is the
@@ -227,7 +227,7 @@ export async function addManualTransactionAction(formData: FormData): Promise<vo
     }
   } else if (categoryRaw === "auto") {
     const rules = await merchantRulesFor(groupId, postedOn);
-    const c = categorizeMerchant(merchant ?? "", rules);
+    const c = categorizeMerchant(merchant ?? "", rules, Number(amount), postedOn);
     category = c.category;
     autoRecurringId = c.recurringExpenseId;
     // An account's transfer words beat the bill and tag rules.
@@ -328,10 +328,7 @@ export async function deleteTransactionAction(
   await requireEditor();
   await scopedTxn(id); // group-scope check
   // A row the bank feed knows about stays deleted: later bank updates skip it.
-  await db
-    .update(plaidTransactions)
-    .set({ dismissedAt: new Date() })
-    .where(eq(plaidTransactions.ledgerTransactionId, id));
+  await releaseBankLinks(id);
   await db.delete(transactions).where(eq(transactions.id, id));
   revalidatePath(BUDGET);
   revalidatePath(EXPLORER);

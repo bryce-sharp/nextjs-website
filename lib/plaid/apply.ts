@@ -7,7 +7,7 @@ import { categorizeMerchant, type MerchantRule } from "@/lib/finance/sms";
 import { spendCategoryFor } from "@/lib/finance/categorize";
 import { spendRulesFor } from "@/lib/queries/finance-categories";
 import { getGroupTimezone } from "@/lib/queries/group";
-import { pickMatch } from "@/lib/finance/match";
+import { pickMatch, pickSplit } from "@/lib/finance/match";
 import { bankDate, bankKind, ledgerAmount, type BankKind } from "@/lib/plaid/map";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +141,7 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
           merchant: transactions.merchant,
           originalAmount: transactions.originalAmount,
           category: transactions.category,
+          source: transactions.source,
         })
         .from(transactions)
         .where(
@@ -150,21 +151,31 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
             or(inArray(transactions.accountId, finIds), inArray(transactions.transferAccountId, finIds)),
             gte(transactions.postedOn, shiftDays(dates[0], -7)),
             lte(transactions.postedOn, shiftDays(dates[dates.length - 1], 7)),
-            sql`not exists (select 1 from plaid_transactions p where p.ledger_transaction_id = ${transactions.id} and p.removed_at is null)`,
+            sql`not exists (select 1 from plaid_transactions p where p.removed_at is null and (p.ledger_transaction_id = ${transactions.id} or ${transactions.id} = any(p.split_ledger_ids)))`,
           ),
         )
     : [];
   const taken = new Set<number>();
   const handled = new Set<number>();
 
-  const markApplied = (rawId: number, ledgerId: number | null) =>
+  const markApplied = (rawId: number, ledgerId: number | null, splitIds: number[] | null = null) =>
     db
       .update(plaidTransactions)
-      .set({ appliedAt: new Date(), ledgerTransactionId: ledgerId })
+      .set({ appliedAt: new Date(), ledgerTransactionId: ledgerId, splitLedgerIds: splitIds?.length ? splitIds : null })
       .where(eq(plaidTransactions.id, rawId));
 
-  /** Bring a ledger row up to date with the bank, keeping the household's edits. */
-  async function refresh(ledgerId: number, kind: BankKind, r: Staged) {
+  /**
+   * Bring a ledger row up to date with the bank, keeping the household's edits.
+   * A payment recorded in parts only gets its status: the parts are the household's.
+   */
+  async function refresh(ledgerId: number, kind: BankKind, r: Staged, splitIds: number[] | null = null) {
+    if (splitIds?.length) {
+      await db
+        .update(transactions)
+        .set({ bankStatus: r.pending ? "pending" : "posted" })
+        .where(inArray(transactions.id, [ledgerId, ...splitIds]));
+      return;
+    }
     const amount = ledgerAmount(kind, Number(r.amount));
     const [row] = await db
       .select({ amount: transactions.amount, originalAmount: transactions.originalAmount })
@@ -233,9 +244,11 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
         amount = transfer.amount;
       } else {
         const rules = await rulesOn(date);
-        // Bills match on the raw bank text first, then on Plaid's clean merchant name.
-        let bill = categorizeMerchant(r.name, rules);
-        if (bill.recurringExpenseId === null && r.merchantName) bill = categorizeMerchant(r.merchantName, rules);
+        // Bills match on the raw bank text first, then on Plaid's clean merchant
+        // name; the amount, then the due month, picks between bills that share a merchant.
+        const paid = Math.abs(Number(r.amount));
+        let bill = categorizeMerchant(r.name, rules, paid, date);
+        if (bill.recurringExpenseId === null && r.merchantName) bill = categorizeMerchant(r.merchantName, rules, paid, date);
         ({ category, recurringExpenseId } = bill);
         billCategory = rules.find((b) => b.recurringExpenseId === recurringExpenseId)?.category ?? null;
       }
@@ -363,18 +376,19 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
     const date = dateOf(r);
 
     if (r.ledgerTransactionId !== null) {
-      await refresh(r.ledgerTransactionId, kind, r);
-      await markApplied(r.id, r.ledgerTransactionId);
+      await refresh(r.ledgerTransactionId, kind, r, r.splitLedgerIds);
+      await markApplied(r.id, r.ledgerTransactionId, r.splitLedgerIds);
       stats.updated++;
       continue;
     }
 
-    // A posted row takes over the entry its pending row created or claimed.
+    // A posted row takes over the entry (or parts) its pending row created or claimed.
     if (r.pendingTransactionId) {
       const [pendingRow] = await db
         .select({
           id: plaidTransactions.id,
           ledgerId: plaidTransactions.ledgerTransactionId,
+          splitIds: plaidTransactions.splitLedgerIds,
           dismissedAt: plaidTransactions.dismissedAt,
         })
         .from(plaidTransactions)
@@ -391,10 +405,10 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
       if (pendingRow?.ledgerId) {
         await db
           .update(plaidTransactions)
-          .set({ ledgerTransactionId: null })
+          .set({ ledgerTransactionId: null, splitLedgerIds: null })
           .where(eq(plaidTransactions.id, pendingRow.id));
-        await refresh(pendingRow.ledgerId, kind, r);
-        await markApplied(r.id, pendingRow.ledgerId);
+        await refresh(pendingRow.ledgerId, kind, r, pendingRow.splitIds);
+        await markApplied(r.id, pendingRow.ledgerId, pendingRow.splitIds);
         stats.updated++;
         continue;
       }
@@ -411,20 +425,30 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
     }
 
     const amount = Number(ledgerAmount(kind, Number(r.amount)));
-    const match = pickMatch(
-      { date, amount, names: [r.name, r.merchantName] },
-      pool
-        .filter((c) => {
-          if (taken.has(c.id) || c.accountId !== r.financialAccountId) return false;
-          if (kind === "income") return c.category === "income";
-          return c.category !== "income" && c.category !== "reimbursement" && c.category !== "transfer";
-        })
-        .map((c) => ({ ...c, originalAmount: Number(c.originalAmount) })),
-    );
+    const bankFacts = { date, amount, names: [r.name, r.merchantName] };
+    const candidates = pool
+      .filter((c) => {
+        if (taken.has(c.id) || c.accountId !== r.financialAccountId) return false;
+        if (kind === "income") return c.category === "income";
+        return c.category !== "income" && c.category !== "reimbursement" && c.category !== "transfer";
+      })
+      .map((c) => ({ ...c, originalAmount: Number(c.originalAmount) }));
+    const match = pickMatch(bankFacts, candidates);
     if (match) {
       taken.add(match.id);
       await refresh(match.id, kind, r);
       await markApplied(r.id, match.id);
+      stats.claimed++;
+      continue;
+    }
+
+    // One payment the household recorded in parts claims all of them.
+    const parts = kind === "spend" ? pickSplit(bankFacts, candidates) : null;
+    if (parts) {
+      const [primary, ...rest] = [...parts].sort((a, b) => b.originalAmount - a.originalAmount).map((p) => p.id);
+      for (const id of [primary, ...rest]) taken.add(id);
+      await refresh(primary, kind, r, rest);
+      await markApplied(r.id, primary, rest);
       stats.claimed++;
       continue;
     }
@@ -437,39 +461,60 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
   // Removals last, so a pending row that posted in this batch has already
   // handed its ledger entry to the posted row.
   for (const r of removedRows) {
-    const ledgerId = r.ledgerTransactionId;
-    if (ledgerId !== null) {
+    const covered = r.ledgerTransactionId === null ? [] : [r.ledgerTransactionId, ...(r.splitLedgerIds ?? [])];
+    let dropped = false;
+    for (const ledgerId of covered) {
       const [stillOwned] = await db
         .select({ id: plaidTransactions.id })
         .from(plaidTransactions)
         .where(
           and(
-            eq(plaidTransactions.ledgerTransactionId, ledgerId),
             isNull(plaidTransactions.removedAt),
             ne(plaidTransactions.id, r.id),
+            sql`(${plaidTransactions.ledgerTransactionId} = ${ledgerId} or ${ledgerId} = any(${plaidTransactions.splitLedgerIds}))`,
           ),
         )
         .limit(1);
-      if (!stillOwned) {
-        const [row] = await db
-          .select({ source: transactions.source, note: transactions.note })
-          .from(transactions)
-          .where(eq(transactions.id, ledgerId))
-          .limit(1);
-        if (row?.source === "plaid") {
-          await db.delete(transactions).where(eq(transactions.id, ledgerId));
-        } else if (row) {
-          await db
-            .update(transactions)
-            .set({ needsReview: true, bankStatus: null, ...(row.note ? {} : { note: DROPPED_NOTE }) })
-            .where(eq(transactions.id, ledgerId));
-          stats.review++;
-        }
-        stats.removed++;
+      if (stillOwned) continue;
+      const [row] = await db
+        .select({ source: transactions.source, note: transactions.note })
+        .from(transactions)
+        .where(eq(transactions.id, ledgerId))
+        .limit(1);
+      if (row?.source === "plaid") {
+        await db.delete(transactions).where(eq(transactions.id, ledgerId));
+      } else if (row) {
+        await db
+          .update(transactions)
+          .set({ needsReview: true, bankStatus: null, ...(row.note ? {} : { note: DROPPED_NOTE }) })
+          .where(eq(transactions.id, ledgerId));
+        stats.review++;
       }
+      dropped = true;
     }
+    if (dropped) stats.removed++;
     await markApplied(r.id, null);
   }
 
   return stats;
+}
+
+/**
+ * Before the household deletes a ledger row. A part of a split stops being
+ * covered (its bank row keeps the other parts); any other bank row is dismissed
+ * so the bank's later updates never bring the deleted row back.
+ */
+export async function releaseBankLinks(ledgerId: number): Promise<void> {
+  await db.execute(sql`
+    update plaid_transactions
+    set split_ledger_ids = nullif(array_remove(split_ledger_ids, ${ledgerId}), '{}')
+    where ${ledgerId} = any(split_ledger_ids)`);
+  await db.execute(sql`
+    update plaid_transactions
+    set ledger_transaction_id = split_ledger_ids[1], split_ledger_ids = nullif(split_ledger_ids[2:], '{}')
+    where ledger_transaction_id = ${ledgerId} and cardinality(split_ledger_ids) > 0`);
+  await db
+    .update(plaidTransactions)
+    .set({ dismissedAt: new Date() })
+    .where(eq(plaidTransactions.ledgerTransactionId, ledgerId));
 }

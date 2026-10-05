@@ -44,4 +44,11 @@ registerHooks({
     if (/^next\/[a-z-]+$/.test(specifier)) return nextResolve(`${specifier}.js`, ctx);
     return nextResolve(specifier, ctx);
   },
+  // The app's .ts files are ES modules; saying so skips Node's reparse warning.
+  load(url, context, nextLoad) {
+    if (url.startsWith("file://") && url.endsWith(".ts") && !url.includes("/node_modules/")) {
+      return nextLoad(url, { ...context, format: "module-typescript" });
+    }
+    return nextLoad(url, context);
+  },
 });

@@ -32,7 +32,10 @@ export function bankKind(t: BankKindFacts): BankKind {
   if (t.accountType === "credit" && t.amount < 0 && (primary === "TRANSFER_IN" || primary === "LOAN_PAYMENTS")) {
     return "skip";
   }
-  if (t.amount < 0 && (primary === "INCOME" || PAYROLL.test(t.name ?? ""))) return "income";
+  // Deposited checks and cash land as income; the household re-files a payback.
+  if (t.amount < 0 && (primary === "INCOME" || detailed === "TRANSFER_IN_DEPOSIT" || PAYROLL.test(t.name ?? ""))) {
+    return "income";
+  }
   // Money sent through Venmo or Cash App is spent: a wallet is never a transfer.
   if (primary === "TRANSFER_OUT" && detailed.includes("FROM_APPS")) return "spend";
   if (primary === "TRANSFER_IN" || primary === "TRANSFER_OUT") return "transfer";

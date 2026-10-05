@@ -53,9 +53,9 @@ function describe(outcome: SyncOutcome): string {
   return parts.length ? parts.join(", ") : "Already up to date.";
 }
 
-// Shown in Plaid's pop-up ("Hub uses Plaid to connect your account"); keep it
+// Shown in Plaid's pop-up ("Bryce Sharp App uses Plaid..."); keep it
 // matching the app name in the Plaid Dashboard. 30 characters max.
-const CLIENT_NAME = "Hub";
+const CLIENT_NAME = "Bryce Sharp App";
 
 // Fetched once at the first connection and fixed for the item's life, so ask
 // for the most Plaid allows; rows before syncFrom never reach the ledger anyway.

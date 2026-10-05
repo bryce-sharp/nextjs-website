@@ -72,3 +72,42 @@ export function pickMatch<T extends MatchCandidate>(bank: BankFacts, candidates:
     }),
   );
 }
+
+export type SplitCandidate = MatchCandidate & { source: string };
+
+const cents = (n: number) => Math.round(n * 100);
+
+/**
+ * Two or three ledger rows that together ARE this bank transaction: one payment
+ * the household recorded in parts (tithing plus offerings, an order split across
+ * tags). The parts must add up to the cent, sit within -3..+5 days of the bank
+ * date and within a day of each other, and be entered by hand or share the
+ * merchant, so unrelated purchases cannot pair up by coincidence. Null if none.
+ */
+export function pickSplit<T extends SplitCandidate>(bank: BankFacts, candidates: T[]): T[] | null {
+  if (bank.amount <= 0) return null;
+  const near = candidates.filter((c) => {
+    const gap = dayGap(c.postedOn, bank.date);
+    return gap >= -3 && gap <= 5 && c.originalAmount > 0 && c.originalAmount < bank.amount;
+  });
+  const target = cents(bank.amount);
+  const like = (c: T) => Math.max(0, ...bank.names.map((n) => likeness(n, c.merchant)));
+  let best: { parts: T[]; gap: number } | null = null;
+
+  const consider = (parts: T[]) => {
+    if (parts.reduce((sum, p) => sum + cents(p.originalAmount), 0) !== target) return;
+    const dates = parts.map((p) => p.postedOn).sort();
+    if (dayGap(dates[dates.length - 1], dates[0]) > 1) return;
+    if (!parts.every((p) => p.source === "manual") && !parts.some((p) => like(p) >= 2)) return;
+    const gap = parts.reduce((sum, p) => sum + Math.abs(dayGap(p.postedOn, bank.date)), 0);
+    if (!best || gap < best.gap) best = { parts, gap };
+  };
+
+  for (let i = 0; i < near.length; i++) {
+    for (let j = i + 1; j < near.length; j++) {
+      consider([near[i], near[j]]);
+      for (let k = j + 1; k < near.length; k++) consider([near[i], near[j], near[k]]);
+    }
+  }
+  return best ? (best as { parts: T[] }).parts : null;
+}
