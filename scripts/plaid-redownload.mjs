@@ -9,6 +9,8 @@
 //   node scripts/live.mjs scripts/plaid-redownload.mjs   (live database)
 //   --item <id>   only that connection (default: all)
 //   --yes         clear the position; then press Sync now in Finance, Settings
+//   --through <n> after the sync: the fingerprint of ledger rows up to id n, to
+//                 compare with the one printed before (it must not change)
 
 import { config } from "dotenv";
 import { neon } from "@neondatabase/serverless";
@@ -24,6 +26,8 @@ const sql = neon(url);
 
 const args = process.argv.slice(2);
 const yes = args.includes("--yes");
+const throughAt = args.indexOf("--through");
+const through = throughAt >= 0 ? Number(args[throughAt + 1]) : null;
 const at = args.indexOf("--item");
 const only = at >= 0 ? Number(args[at + 1]) : null;
 if (at >= 0 && !Number.isInteger(only)) {
@@ -31,8 +35,22 @@ if (at >= 0 && !Number.isInteger(only)) {
   process.exit(1);
 }
 
+/** A digest of the banked households' ledger rows up to an id: what a re-read must never change. */
+async function fingerprint(maxId) {
+  const [f] = await sql`
+    SELECT count(*)::int AS rows, max(id) AS through,
+           md5(string_agg(id || ':' || amount || ':' || category || ':' || coalesce(spend_category, '') || ':' ||
+               coalesce(merchant, '') || ':' || coalesce(recurring_expense_id::text, '') || ':' || posted_on, ',' ORDER BY id)) AS digest
+    FROM transactions
+    WHERE group_id IN (SELECT group_id FROM plaid_items) AND (${maxId}::int IS NULL OR id <= ${maxId})`;
+  return f;
+}
+
 async function main() {
   console.log(`database host: ${new URL(url).hostname}${yes ? "" : "   (dry run: add --yes to clear)"}`);
+  const f = await fingerprint(through);
+  console.log(`ledger fingerprint through row ${f.through}: ${f.digest} (${f.rows} rows)`);
+  if (through != null) return;
   const items = await sql`
     SELECT pi.id, pi.institution_name, pi.status, pi.cursor IS NOT NULL AS has_position,
            (SELECT count(*)::int FROM plaid_transactions pt JOIN plaid_accounts pa ON pa.id = pt.plaid_account_id
