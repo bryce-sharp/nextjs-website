@@ -45,7 +45,8 @@ Working rules for Claude Code in this repository. Laptop setup for people is in
   tests a pattern before it is added). `plaid-reapply.mjs` takes a bank-created row back
   out so the sync files it again (dry run unless `--yes`; `--now` files it right away).
   `plaid-redownload.mjs` clears a bank's sync position so its next sync re-reads the
-  whole history (dry run unless `--yes`). `atlas-apply.mjs` applies a
+  whole history (dry run unless `--yes`). `finance-check.mjs` is the read-only sanity
+  check of the whole ledger (sync health, sign and link rules, duplicates, this month). `atlas-apply.mjs` applies a
   reviewed JSON list of Atlas changes (patterns, fixes, new bills, re-filing rows; dry run
   unless `--yes`); keep the list in the scratchpad, never in the repo.
 

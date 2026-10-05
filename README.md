@@ -48,6 +48,7 @@ npm run db:studio      # browse/edit the DB in a GUI (local.drizzle.studio)
 node scripts/inspect-db.mjs   # quick: list the DB tables
 node scripts/reconcile-card.mjs <chase.csv>   # read-only: statement vs app transactions
 node scripts/plaid-status.mjs   # read-only: bank sync health (--rows for every bank row)
+node scripts/finance-check.mjs  # read-only: ledger sanity check (sync, rules, duplicates, this month)
 node scripts/bill-audit.mjs     # read-only: bills' match patterns vs the bank's text (--try "TEXT")
 node scripts/atlas-apply.mjs <changes.json>   # apply reviewed bill changes (dry run unless --yes)
 ```
