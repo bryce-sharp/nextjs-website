@@ -29,7 +29,18 @@ export type ApplyStats = {
   review: number;
 };
 
-type Staged = typeof plaidTransactions.$inferSelect & { financialAccountId: number | null; accountType: string };
+type Staged = typeof plaidTransactions.$inferSelect & {
+  financialAccountId: number | null;
+  accountType: string;
+  /** The bank's own statement text (the wording card alerts use), when Plaid sent it. */
+  statementText: string | null;
+};
+
+/** Every spelling the bank gives, most literal first: its statement text, Plaid's
+ *  description, then Plaid's clean merchant name. Rules written from card alerts
+ *  match the statement text; ones written from Plaid's names still match. */
+const spellings = (r: Staged, withMerchant = true): string[] =>
+  [r.statementText, r.name, withMerchant ? r.merchantName : null].filter((s): s is string => Boolean(s));
 
 const DAY = 86_400_000;
 const shiftDays = (iso: string, n: number) =>
@@ -86,6 +97,7 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
       ...getTableColumns(plaidTransactions),
       financialAccountId: plaidAccounts.financialAccountId,
       accountType: plaidAccounts.type,
+      statementText: sql<string | null>`${plaidTransactions.raw}->>'original_description'`,
     })
     .from(plaidTransactions)
     .innerJoin(plaidAccounts, eq(plaidTransactions.plaidAccountId, plaidAccounts.id))
@@ -216,7 +228,8 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
         accountId: values.accountId,
         transferAccountId: values.transferAccountId,
         postedOn: values.date,
-        merchant: values.r.name.slice(0, 200),
+        // Plaid's clean merchant name reads best in lists; the popup shows the bank's wording.
+        merchant: (values.r.merchantName ?? values.r.name).slice(0, 200),
         amount: values.amount,
         originalAmount: values.amount,
         category: values.category,
@@ -240,7 +253,11 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
     let recurringExpenseId: number | null = null;
     let billCategory: string | null = null;
     if (kind !== "income") {
-      const transfer = asTransfer(r.name, amount, accountId, transferRules);
+      // Transfer words read the bank's own text, never the merchant name a store shares.
+      const transfer =
+        spellings(r, false)
+          .map((s) => asTransfer(s, amount, accountId, transferRules))
+          .find((t) => t !== null) ?? null;
       if (transfer) {
         category = "transfer";
         accountId = transfer.accountId;
@@ -248,11 +265,14 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
         amount = transfer.amount;
       } else {
         const rules = await rulesOn(date);
-        // Bills match on the raw bank text first, then on Plaid's clean merchant
-        // name; the amount, then the due month, picks between bills that share a merchant.
+        // Bills match the most literal spelling that names one; the amount, then
+        // the due month, picks between bills that share a merchant.
         const paid = Math.abs(Number(r.amount));
-        let bill = categorizeMerchant(r.name, rules, paid, date);
-        if (bill.recurringExpenseId === null && r.merchantName) bill = categorizeMerchant(r.merchantName, rules, paid, date);
+        let bill = categorizeMerchant("", rules, paid, date);
+        for (const s of spellings(r)) {
+          bill = categorizeMerchant(s, rules, paid, date);
+          if (bill.recurringExpenseId !== null) break;
+        }
         ({ category, recurringExpenseId } = bill);
         billCategory = rules.find((b) => b.recurringExpenseId === recurringExpenseId)?.category ?? null;
       }
@@ -260,8 +280,9 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
     const spendCategory =
       category === "transfer"
         ? null
-        : (spendCategoryFor(category, r.name, billCategory, spendRules) ??
-          (r.merchantName ? spendCategoryFor(category, r.merchantName, billCategory, spendRules) : null));
+        : (spellings(r)
+            .map((s) => spendCategoryFor(category, s, billCategory, spendRules))
+            .find((tag) => tag !== null) ?? null);
     return insertRow({ r, date, accountId, transferAccountId, amount, category, recurringExpenseId, spendCategory, needsReview: false });
   }
 
@@ -341,7 +362,7 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
     }
 
     const handEntered = pickMatch(
-      { date, amount: Number(abs), names: [r.name, r.merchantName] },
+      { date, amount: Number(abs), names: spellings(r) },
       pool
         .filter(
           (c) =>
@@ -429,7 +450,7 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
     }
 
     const amount = Number(ledgerAmount(kind, Number(r.amount)));
-    const bankFacts = { date, amount, names: [r.name, r.merchantName] };
+    const bankFacts = { date, amount, names: spellings(r) };
     const candidates = pool
       .filter((c) => {
         if (taken.has(c.id) || c.accountId !== r.financialAccountId) return false;

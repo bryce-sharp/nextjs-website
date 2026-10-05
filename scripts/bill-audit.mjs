@@ -80,9 +80,12 @@ function commonWordPrefix(texts) {
   return out.join(" ");
 }
 
+/** Every spelling the bank gives, most literal first (lib/plaid/apply.ts, spellings). */
+const spellings = (row, withMerchant = true) =>
+  [row.statement_text, row.name, withMerchant ? row.merchant_name : null].filter(Boolean);
 const contains = (row, pattern) => {
   const p = pattern.toLowerCase();
-  return row.name.toLowerCase().includes(p) || Boolean(row.merchant_name?.toLowerCase().includes(p));
+  return spellings(row).some((s) => s.toLowerCase().includes(p));
 };
 
 async function auditGroup(groupId) {
@@ -97,6 +100,7 @@ async function auditGroup(groupId) {
   const bank = await sql`
     SELECT pt.id, pa.financial_account_id AS account_id, pa.type AS account_type, pt.amount::float8 AS amount,
            coalesce(pt.authorized_date, pt.date)::text AS date, pt.name, pt.merchant_name,
+           pt.raw->>'original_description' AS statement_text,
            pt.pfc_primary, pt.pfc_detailed, pt.ledger_transaction_id, pt.split_ledger_ids
     FROM plaid_transactions pt
     JOIN plaid_accounts pa ON pa.id = pt.plaid_account_id
@@ -164,13 +168,17 @@ async function auditGroup(groupId) {
     });
     let route = { kind, billId: null };
     if (kind === "spend") {
-      if (longestMatchingRule(row.name, transferRules.filter((t) => t.accountId !== row.account_id))) {
+      const others = transferRules.filter((t) => t.accountId !== row.account_id);
+      if (spellings(row, false).some((s) => longestMatchingRule(s, others))) {
         route = { kind: "transfer words", billId: null };
       } else {
         const paid = Math.abs(row.amount);
-        let bill = categorizeMerchant(row.name, rules, paid, row.date);
-        if (bill.recurringExpenseId === null && row.merchant_name) bill = categorizeMerchant(row.merchant_name, rules, paid, row.date);
-        route = { kind, billId: bill.recurringExpenseId };
+        let billId = null;
+        for (const s of spellings(row)) {
+          billId = categorizeMerchant(s, rules, paid, row.date).recurringExpenseId;
+          if (billId !== null) break;
+        }
+        route = { kind, billId };
       }
     }
     routeOf.set(row.id, route);
@@ -237,6 +245,7 @@ async function auditGroup(groupId) {
             account: accountName.get(r.account_id),
             amount: money(r.amount),
             text: r.name,
+            statement: r.statement_text ?? "",
             merchant: clip(r.merchant_name ?? "", 30),
             plaid: r.pfc_detailed ?? "",
             "files under today":
@@ -303,7 +312,7 @@ async function auditGroup(groupId) {
     const unmatched = stats.misses.filter(({ route }) => route.kind === "spend" && route.billId == null).map((m) => m.row);
     let suggestion = "";
     if (unmatched.length) {
-      const firsts = [...new Set(unmatched.map((r) => leadingWords(r.name)))];
+      const firsts = [...new Set(unmatched.map((r) => leadingWords(r.statement_text ?? r.name)))];
       const common = commonWordPrefix(firsts);
       const picks = firsts.length > 1 && common.length >= 4 ? [common] : firsts;
       suggestion = picks
@@ -364,7 +373,7 @@ async function auditGroup(groupId) {
       last: last.date,
       plaid: last.pfc_detailed ?? "",
       "bank text": clip(last.name, 40),
-      suggest: leadingWords(last.name),
+      suggest: leadingWords(last.statement_text ?? last.name),
     });
   }
   repeating.sort((a, b) => b.months - a.months || Number(b.typical) - Number(a.typical));

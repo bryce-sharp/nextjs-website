@@ -30,6 +30,11 @@ the Chase card, and replaces hand entry for Ally Checking and Ally Savings._
 Plaid's sign matches the ledger (positive = money out).
 
 - **Purchases** go through the existing bill and Categories rules (`lib/finance/ingest.ts`).
+- **Matching text:** bills, transfer words, tags, and claims read the bank's own statement
+  text first (`original_description`, which the sync asks Plaid for), then Plaid's
+  description, then its clean merchant name. Rules written from card alerts match the
+  statement text. Rows the bank feed creates show Plaid's clean merchant name; the row
+  popup shows the bank's wording.
 - **Pending** rows are inserted at once with `bank_status = "pending"` so the budget
   stays real-time. When the posted row arrives (`pending_transaction_id`), the same
   ledger row updates in place: household edits are kept, and the amount follows
@@ -92,6 +97,10 @@ Plaid's sign matches the ledger (positive = money out).
 
 All laptop values live in Vercel's Development environment; `vercel env pull .env.local`
 fetches them (see `docs/setup.md`).
+
+To re-read a bank's whole history (after the app starts asking Plaid for something new),
+`node scripts/live.mjs scripts/plaid-redownload.mjs --yes` clears the saved sync position;
+the next sync downloads everything again and updates each row in place.
 
 `PLAID_TOKEN_KEY` must never change once banks are connected: a new key makes the
 stored access tokens unreadable, and replacing them means new connections, each

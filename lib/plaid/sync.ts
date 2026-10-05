@@ -73,7 +73,13 @@ async function fetchChanges(accessToken: string, cursor: string | null) {
     try {
       let hasMore = true;
       while (hasMore) {
-        const { data } = await plaid.transactionsSync({ access_token: accessToken, cursor: next, count: 500 });
+        // The bank's own statement text (original_description) is sent only when asked for.
+        const { data } = await plaid.transactionsSync({
+          access_token: accessToken,
+          cursor: next,
+          count: 500,
+          options: { include_original_description: true },
+        });
         added.push(...data.added);
         modified.push(...data.modified);
         removed.push(...data.removed);
