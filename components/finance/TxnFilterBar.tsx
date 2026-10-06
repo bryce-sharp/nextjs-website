@@ -176,7 +176,7 @@ export default function TxnFilterBar({
               startAdornment: <InputAdornment position="start">$</InputAdornment>,
             },
           }}
-          sx={{ width: 110 }}
+          sx={{ width: { xs: "calc(50% - 6px)", sm: 110 } }}
         />
         <TextField
           size="small"
@@ -192,7 +192,7 @@ export default function TxnFilterBar({
               startAdornment: <InputAdornment position="start">$</InputAdornment>,
             },
           }}
-          sx={{ width: 110 }}
+          sx={{ width: { xs: "calc(50% - 6px)", sm: 110 } }}
         />
 
         <TextField
@@ -204,7 +204,7 @@ export default function TxnFilterBar({
             setRange(e.target.value);
             commit(vals({ range: e.target.value }), true);
           }}
-          sx={{ width: 160 }}
+          sx={{ width: { xs: "calc(50% - 6px)", sm: 160 } }}
         >
           {RANGES.map((r) => (
             <MenuItem key={r.value} value={r.value}>
@@ -225,7 +225,7 @@ export default function TxnFilterBar({
                 commit(vals({ from: e.target.value }), true);
               }}
               slotProps={{ inputLabel: { shrink: true } }}
-              sx={{ width: 160 }}
+              sx={{ width: { xs: "calc(50% - 6px)", sm: 160 } }}
             />
             <TextField
               size="small"
@@ -237,7 +237,7 @@ export default function TxnFilterBar({
                 commit(vals({ to: e.target.value }), true);
               }}
               slotProps={{ inputLabel: { shrink: true } }}
-              sx={{ width: 160 }}
+              sx={{ width: { xs: "calc(50% - 6px)", sm: 160 } }}
             />
           </>
         ) : null}
@@ -253,7 +253,7 @@ export default function TxnFilterBar({
             setType(e.target.value);
             commit(vals({ type: e.target.value }), true);
           }}
-          sx={{ width: 180 }}
+          sx={{ width: { xs: "calc(50% - 6px)", sm: 180 } }}
         >
           <MenuItem value="">All types</MenuItem>
           <ListSubheader>Spending</ListSubheader>
@@ -281,7 +281,7 @@ export default function TxnFilterBar({
             setCat(e.target.value);
             commit(vals({ cat: e.target.value }), true);
           }}
-          sx={{ width: 170 }}
+          sx={{ width: { xs: "calc(50% - 6px)", sm: 170 } }}
         >
           <MenuItem value="">All tags</MenuItem>
           <MenuItem value={UNCATEGORIZED}>Untagged</MenuItem>
@@ -306,7 +306,7 @@ export default function TxnFilterBar({
             commit(vals({ group: g?.name ?? "", groupflow: g?.flow ?? "out" }), true);
           }}
           renderInput={(params) => <TextField {...params} label="Group" placeholder="Walmart…" />}
-          sx={{ width: 220 }}
+          sx={{ width: { xs: "calc(50% - 6px)", sm: 220 } }}
         />
 
         {hasAny ? (

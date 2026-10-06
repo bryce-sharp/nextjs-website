@@ -181,6 +181,12 @@ export default function TransactionRow({
         ]}
       >
         {formatDate(txn.postedOn)}
+        {/* On a phone, pending rides on the date line instead of taking a chip. */}
+        {txn.bankStatus === "pending" ? (
+          <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+            {" · pending"}
+          </Box>
+        ) : null}
       </TableCell>
 
       <TableCell sx={[{ maxWidth: 240 }, phoneCell("merchant", { maxWidth: "none", minWidth: 0 })]}>
@@ -248,15 +254,22 @@ export default function TransactionRow({
           spacing={0.5}
           sx={[{ flexWrap: "wrap", rowGap: 0.5 }, onPhone({ justifyContent: "flex-end" })]}
         >
+          {/* Discretionary is the usual lane, so a phone shows only the others. */}
           <Chip
             size="small"
             variant="outlined"
             color={chipColor(txn.category)}
             label={CATEGORY_LABEL[txn.category] ?? txn.category}
+            sx={txn.category === "discretionary" ? onPhone({ display: "none" }) : undefined}
           />
           {txn.bankStatus === "pending" ? (
             <Tooltip title="Authorized at the bank but not posted yet; it updates in place when it posts">
-              <Chip size="small" variant="outlined" label="Pending" sx={{ borderStyle: "dotted" }} />
+              <Chip
+                size="small"
+                variant="outlined"
+                label="Pending"
+                sx={[{ borderStyle: "dotted" }, onPhone({ display: "none" })]}
+              />
             </Tooltip>
           ) : null}
           {txn.spendCategory ? (
