@@ -113,6 +113,29 @@ export async function requireOwner(): Promise<Session> {
   return requireSession();
 }
 
+// ── Site admins ───────────────────────────────────────────────────────────────
+// The people who run the site itself: SITE_ADMINS in the deployment's
+// environment, a comma-separated list of usernames. Being one grants no
+// household's data; it adds only the events that belong to no household
+// (a webhook the site refused) to the Activity list on /group.
+
+/** Is the signed-in account one of the site's admins? */
+export async function isSiteAdmin(): Promise<boolean> {
+  const admins = (process.env.SITE_ADMINS ?? "")
+    .split(",")
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean);
+  if (admins.length === 0) return false;
+  const session = await getSession();
+  if (!session) return false;
+  const [row] = await db
+    .select({ username: accounts.username })
+    .from(accounts)
+    .where(eq(accounts.id, session.accountId))
+    .limit(1);
+  return row !== undefined && admins.includes(row.username.toLowerCase());
+}
+
 // ── Guards (call from Server Actions) ─────────────────────────────────────────
 /** Guard for COMMUNAL writes (catalog, shared cars): signed in. */
 export async function requireEditor(): Promise<void> {

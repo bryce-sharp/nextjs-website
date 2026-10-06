@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { eventLog, plaidAccounts, plaidItems, type PlaidItem } from "@/lib/db/schema";
 import { requireGroupId } from "@/lib/session";
 import { listEvents, type EventView } from "@/lib/events";
+import { plaidEnv } from "@/lib/plaid/client";
 
 export type BankAccountRow = {
   id: number;
@@ -16,6 +17,8 @@ export type BankAccountRow = {
 
 export type BankConnectionRow = {
   id: number;
+  /** The Plaid environment the login was made in (sandbox | production). */
+  environment: string;
   institutionName: string;
   status: string;
   lastError: string | null;
@@ -32,6 +35,7 @@ export async function listBankConnections(): Promise<BankConnectionRow[]> {
   const rows = await db
     .select({
       id: plaidItems.id,
+      environment: plaidItems.environment,
       institutionName: plaidItems.institutionName,
       status: plaidItems.status,
       lastError: plaidItems.lastError,
@@ -55,6 +59,7 @@ export async function listBankConnections(): Promise<BankConnectionRow[]> {
     if (!item) {
       item = {
         id: r.id,
+        environment: r.environment,
         institutionName: r.institutionName,
         status: r.status,
         lastError: r.lastError,
@@ -91,12 +96,15 @@ export async function listBankConnections(): Promise<BankConnectionRow[]> {
 
 /** The household's recent bank events (webhooks, syncs), newest first. */
 export async function listBankActivity(limit = 12): Promise<EventView[]> {
-  return listEvents(await requireGroupId(), { source: "plaid", limit });
+  return listEvents({ groupId: await requireGroupId() }, { source: "plaid", limit });
 }
 
 export type BankAlert = { institutionName: string; status: string; lastError: string | null };
 
-/** This group's bank logins that need the owner (anything but a healthy status). */
+/**
+ * This group's bank logins that need the owner (anything but a healthy
+ * status), counting only this deployment's Plaid environment.
+ */
 export async function listBankAlerts(): Promise<BankAlert[]> {
   const groupId = await requireGroupId();
   return db
@@ -106,7 +114,9 @@ export async function listBankAlerts(): Promise<BankAlert[]> {
       lastError: plaidItems.lastError,
     })
     .from(plaidItems)
-    .where(and(eq(plaidItems.groupId, groupId), ne(plaidItems.status, "ok")))
+    .where(
+      and(eq(plaidItems.groupId, groupId), eq(plaidItems.environment, plaidEnv()), ne(plaidItems.status, "ok")),
+    )
     .orderBy(asc(plaidItems.createdAt));
 }
 

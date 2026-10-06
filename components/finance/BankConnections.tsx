@@ -77,12 +77,15 @@ export default function BankConnections({
   activity = [],
   canManage,
   sandbox,
+  hiddenNote = null,
 }: {
   connections: BankConnection[];
   accounts: FeedableAccount[];
   activity?: BankActivity[];
   canManage: boolean;
   sandbox: boolean;
+  /** Logins from the other Plaid environment are left out of the list; this says so. */
+  hiddenNote?: string | null;
 }) {
   const [showActivity, setShowActivity] = React.useState(false);
   const [linkToken, setLinkToken] = React.useState<string | null>(null);
@@ -156,7 +159,7 @@ export default function BankConnections({
     if (itemId === null && connections.length > 0) {
       const names = connections.map((c) => c.institutionName).join(", ");
       const ok = window.confirm(
-        `Already connected: ${names}. To fix one of those, use its Reconnect button instead. Each new connection uses one of your free Plaid slots, even if it is later removed.`,
+        `Already connected: ${names}. To fix one of those, use its Reconnect button instead.${sandbox ? "" : " Each new connection uses one of your free Plaid slots, even if it is later removed."}`,
       );
       if (!ok) return;
     }
@@ -196,13 +199,19 @@ export default function BankConnections({
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Transactions from your banks, synced through Plaid. Card alerts from the
         shortcut still post instantly, and the bank confirms them later.
-        {sandbox ? " Sandbox mode: these are Plaid's test banks, not real accounts." : ""}
+        {sandbox ? " Sandbox mode: banks connected here are Plaid's test banks, not real accounts." : ""}
       </Typography>
 
       {notice ? (
         <Alert severity={notice.severity} onClose={() => setNotice(null)} sx={{ mb: 2 }}>
           {notice.text}
         </Alert>
+      ) : null}
+
+      {hiddenNote ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {hiddenNote}
+        </Typography>
       ) : null}
 
       {connections.length === 0 ? (

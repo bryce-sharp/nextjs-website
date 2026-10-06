@@ -191,7 +191,7 @@ export default function ProfileMenu({
           </ListItemIcon>
           <ListItemText>Manage group…</ListItemText>
         </MenuItem>
-        <MenuItem component={Link} href="/group#sign-in" onClick={closeMenu}>
+        <MenuItem component={Link} href="/group?tab=sign-in" onClick={closeMenu}>
           <ListItemIcon>
             <FingerprintIcon fontSize="small" />
           </ListItemIcon>

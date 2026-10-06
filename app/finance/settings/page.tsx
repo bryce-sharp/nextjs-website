@@ -13,7 +13,8 @@ import { listApiTokens } from "@/lib/queries/finance-tokens";
 import { listFinancialAccounts } from "@/lib/queries/finance-networth";
 import { listBankActivity, listBankConnections } from "@/lib/queries/finance-plaid";
 import { formatDateTime } from "@/lib/format";
-import { plaidConfigured, plaidEnv } from "@/lib/plaid/client";
+import { isProblem } from "@/lib/events";
+import { hiddenLoginsNote, plaidConfigured, plaidEnv } from "@/lib/plaid/client";
 import TokenManager from "@/components/finance/TokenManager";
 import BankConnections from "@/components/finance/BankConnections";
 
@@ -41,6 +42,12 @@ export default async function FinanceSettingsPage() {
   const openAccounts = accounts.filter((a) => !a.archivedAt);
   const owner = group?.ownerAccountId === session.accountId;
   const showBanks = configured && !group?.isDemo;
+  // Dev is reset from live, so it holds live's real logins; each deployment
+  // lists only the logins of its own Plaid environment and leaves the rest be.
+  const ownConnections = connections.filter((c) => c.environment === plaidEnv());
+  const hiddenNote = hiddenLoginsNote(
+    connections.filter((c) => c.environment !== plaidEnv()).map((c) => c.institutionName),
+  );
 
   return (
     <Container maxWidth="sm" sx={{ py: { xs: 4, md: 6 } }}>
@@ -68,7 +75,7 @@ export default async function FinanceSettingsPage() {
       <Stack spacing={3}>
         {showBanks ? (
           <BankConnections
-            connections={connections.map((c) => ({
+            connections={ownConnections.map((c) => ({
               id: c.id,
               institutionName: c.institutionName,
               status: c.status,
@@ -88,10 +95,11 @@ export default async function FinanceSettingsPage() {
               id: e.id,
               when: formatDateTime(e.at, tz),
               message: e.message ?? e.kind,
-              problem: e.kind === "webhook_rejected" || (e.kind === "sync" && e.data?.ok === false),
+              problem: isProblem(e),
             }))}
             canManage={owner && configured}
             sandbox={plaidEnv() === "sandbox"}
+            hiddenNote={hiddenNote}
           />
         ) : owner && !group?.isDemo ? (
           <Alert severity="info">

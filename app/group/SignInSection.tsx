@@ -6,7 +6,6 @@ import Paper from "@mui/material/Paper";
 import Chip from "@mui/material/Chip";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
-import Divider from "@mui/material/Divider";
 import { db } from "@/lib/db";
 import { accounts } from "@/lib/db/schema";
 import { listPasskeys } from "@/lib/queries/passkeys";
@@ -21,9 +20,8 @@ import ChangePasswordForm from "./ChangePasswordForm";
 const fmtDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 // The signed-in ACCOUNT's own keys (not the household's): the reset notice,
-// the add-Face-ID nudge, Change password, and passkeys. Lives on /group so all
-// people-and-login settings are on one page; #sign-in is where sign-in sends
-// people with something to see here.
+// the add-Face-ID nudge, Change password, and passkeys. It is the Sign-in tab
+// of /group (?tab=sign-in), where sign-in sends people with something to see.
 export default async function SignInSection({
   accountId,
   iat,
@@ -53,13 +51,7 @@ export default async function SignInSection({
   const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/";
 
   return (
-    <Stack spacing={2} id="sign-in" sx={{ scrollMarginTop: 88 }}>
-      <Divider>
-        <Typography variant="overline" color="text.secondary">
-          Your sign-in
-        </Typography>
-      </Divider>
-
+    <Stack spacing={2}>
       {unseen.length ? (
         <Alert
           severity="warning"

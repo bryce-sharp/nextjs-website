@@ -975,6 +975,11 @@ export const plaidItems = pgTable(
       .notNull()
       .references(() => groups.id, { onDelete: "cascade" }),
     itemId: varchar("item_id", { length: 100 }).notNull().unique(),
+    // The Plaid environment the login was made in: sandbox | production. Dev is
+    // reset from live and so holds live's real logins; each deployment syncs
+    // and changes only the logins of its own environment (PLAID_ENV). Connect
+    // always names it; the default only covers an insert that does not.
+    environment: varchar("environment", { length: 20 }).notNull().default("production"),
     // AES-256-GCM via lib/plaid/crypto; the raw token never leaves the server.
     accessTokenEnc: text("access_token_enc").notNull(),
     institutionId: varchar("institution_id", { length: 40 }),
