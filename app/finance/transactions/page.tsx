@@ -1,5 +1,6 @@
 import Link from "@/components/shared/AppLink";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import Container from "@mui/material/Container";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
@@ -20,6 +21,7 @@ import {
 import { getMerchantGroupsForGroup } from "@/lib/queries/finance-categories";
 import { listFinancialAccounts } from "@/lib/queries/finance-networth";
 import { LANE_LABELS, UNTAGGED, flowOf, type Flow } from "@/lib/finance/cashflow";
+import { staleBanks, syncBanks } from "@/lib/plaid/sync";
 import {
   getMonthReportForGroup,
   getRangeReportForGroup,
@@ -31,6 +33,7 @@ import TxnFilterBar, { type RawFilters } from "@/components/finance/TxnFilterBar
 import TransactionsTable from "@/components/finance/TransactionsTable";
 import CashFlowHistory from "@/components/finance/CashFlowHistory";
 import ListFilterChip from "@/components/finance/ListFilterChip";
+import RefreshAfterSync from "@/components/finance/RefreshAfterSync";
 
 export const metadata = { title: "History" };
 
@@ -88,6 +91,9 @@ export default async function HistoryPage({
 
   const groupId = session.groupId;
   const tz = await getGroupTimezone(groupId);
+  // Bank data a few hours old: sync once this page is sent, then re-render.
+  const stale = await staleBanks(groupId);
+  if (stale.length) after(() => syncBanks(stale, "stale"));
   const today = todayISO(tz);
 
   const range = str(get("range")) ?? "year";
@@ -242,6 +248,7 @@ export default async function HistoryPage({
 
   return (
     <Container maxWidth="md" sx={{ py: { xs: 4, md: 6 } }}>
+      <RefreshAfterSync active={stale.length > 0} />
       <Button
         component={Link}
         href="/finance"

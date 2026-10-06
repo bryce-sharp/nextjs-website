@@ -7,7 +7,7 @@ the Chase card, and replaces hand entry for Ally Checking and Ally Savings._
 
 | Question | Decision |
 |---|---|
-| SMS shortcut | Runs alongside Plaid for one month (October 2026), then the shortcut is retired. The ingest endpoint may stay, unused. |
+| SMS shortcut | Kept for good (decided 2026-10-05) as the instant layer: an alert lands seconds after a swipe, and the bank feed confirms it later, catches what Chase never texts, and covers Ally. Plaid checks a bank only one or more times a day, so the feed alone can lag a day. |
 | Cutover | Bank rows dated before **2026-10-01** stay in `plaid_transactions` and never reach the ledger. |
 | History | `days_requested: 730`, fetched once at the first connection (it cannot be raised later). |
 | Who connects banks | The household owner only; never the demo login. |
@@ -23,7 +23,13 @@ the Chase card, and replaces hand entry for Ally Checking and Ally Savings._
 - **The app pulls changes** with `/transactions/sync` and a saved cursor: only
   added, modified, and removed transactions since the last call.
 - **Triggers:** the `SYNC_UPDATES_AVAILABLE` webhook (main path), a daily Vercel
-  cron (backstop; Hobby allows once a day), and a Sync now button.
+  cron (backstop; Hobby allows once a day), a Sync now button, and a refresh when
+  Budget or History opens while a bank's data is over 3 hours old (synced after the
+  page is sent, which then re-renders itself; a bank tried in the last half hour waits).
+- **Event log:** every webhook (including ones that fail the signature check) and
+  every sync, with what started it, goes to `event_log` (`lib/events.ts`). Finance,
+  Settings shows each bank's last webhook and the recent activity;
+  `plaid-status.mjs` and `finance-check.mjs` report them too.
 
 ## Ledger rules
 

@@ -11,7 +11,8 @@ import { getSession } from "@/lib/session";
 import { getMyGroup } from "@/lib/queries/groups";
 import { listApiTokens } from "@/lib/queries/finance-tokens";
 import { listFinancialAccounts } from "@/lib/queries/finance-networth";
-import { listBankConnections } from "@/lib/queries/finance-plaid";
+import { listBankActivity, listBankConnections } from "@/lib/queries/finance-plaid";
+import { formatDateTime } from "@/lib/format";
 import { plaidConfigured, plaidEnv } from "@/lib/plaid/client";
 import TokenManager from "@/components/finance/TokenManager";
 import BankConnections from "@/components/finance/BankConnections";
@@ -29,12 +30,14 @@ export default async function FinanceSettingsPage() {
   // Bank tables are only read where Plaid is set up, so a deployment whose
   // database has not received them yet (a preview build) still renders.
   const configured = plaidConfigured();
-  const [tokens, accounts, group, connections] = await Promise.all([
+  const [tokens, accounts, group, connections, activity] = await Promise.all([
     listApiTokens(),
     listFinancialAccounts(),
     getMyGroup(),
     configured ? listBankConnections() : Promise.resolve([]),
+    configured ? listBankActivity() : Promise.resolve([]),
   ]);
+  const tz = group?.timezone ?? "America/Chicago";
   const openAccounts = accounts.filter((a) => !a.archivedAt);
   const owner = group?.ownerAccountId === session.accountId;
   const showBanks = configured && !group?.isDemo;
@@ -70,7 +73,8 @@ export default async function FinanceSettingsPage() {
               institutionName: c.institutionName,
               status: c.status,
               lastError: c.lastError,
-              lastSyncedAt: c.lastSyncedAt ? c.lastSyncedAt.toISOString() : null,
+              lastSynced: c.lastSyncedAt ? formatDateTime(c.lastSyncedAt, tz) : null,
+              lastWebhook: c.lastWebhookAt ? formatDateTime(c.lastWebhookAt, tz) : null,
               syncFrom: c.syncFrom,
               accounts: c.accounts.map((a) => ({
                 id: a.id,
@@ -80,6 +84,12 @@ export default async function FinanceSettingsPage() {
               })),
             }))}
             accounts={openAccounts.map((a) => ({ id: a.id, name: a.name }))}
+            activity={activity.map((e) => ({
+              id: e.id,
+              when: formatDateTime(e.at, tz),
+              message: e.message ?? e.kind,
+              problem: e.kind === "webhook_rejected" || (e.kind === "sync" && e.data?.ok === false),
+            }))}
             canManage={owner && configured}
             sandbox={plaidEnv() === "sandbox"}
           />

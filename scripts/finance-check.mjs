@@ -55,6 +55,18 @@ async function checkGroup(groupId) {
     JOIN plaid_accounts pa ON pa.id = pt.plaid_account_id
     JOIN plaid_items pi ON pi.id = pa.plaid_item_id
     WHERE pi.group_id = ${groupId}`;
+  // The daily sync runs every morning, so a bank more than 30 hours behind means it stopped.
+  const freshness = await sql`
+    SELECT pi.institution_name AS bank,
+           floor(extract(epoch FROM now() - pi.last_synced_at) / 3600)::int AS hours_since_sync,
+           (SELECT to_char(max(e.created_at) AT TIME ZONE ${g.timezone}, 'Mon DD HH24:MI') FROM event_log e
+             WHERE e.source = 'plaid' AND e.kind = 'webhook' AND (e.data->>'item')::int = pi.id) AS last_webhook
+    FROM plaid_items pi WHERE pi.group_id = ${groupId} ORDER BY pi.id`;
+  const behind = freshness.filter((f) => f.hours_since_sync == null || f.hours_since_sync > 30);
+  console.log(verdict(behind.length, "every bank synced within the last 30 hours", `{n} banks have not synced in over 30 hours: ${behind.map((f) => f.bank).join(", ")}`));
+  for (const f of freshness) {
+    console.log(`INFO  ${f.bank}: Plaid last reported changes ${f.last_webhook ?? "never (no webhook on record)"}`);
+  }
   console.log(verdict(s.waiting, "every bank row has been filed", "{n} bank rows wait for the ledger step"));
   console.log(verdict(s.stale_pending, "no pending row older than 10 days", "{n} pending rows are older than 10 days"));
   const unfiled = await sql`

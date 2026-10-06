@@ -50,6 +50,13 @@ Working rules for Claude Code in this repository. Laptop setup for people is in
   reviewed JSON list of Atlas changes (patterns, fixes, new bills, re-filing rows; dry run
   unless `--yes`); keep the list in the scratchpad, never in the repo.
 
+## Event log
+
+- `event_log` is the app-wide timeline: write to it with `logEvent` from `lib/events.ts`
+  (it never throws). Plaid webhooks and syncs (with their trigger) are logged today; the
+  daily cron prunes rows older than 180 days. Server logs on the Hobby plan last an hour,
+  so record anything you will want to check later here.
+
 ## Checking app code without the server
 
 `node --env-file=.env.local --import ./scripts/node-hooks.mjs check.mts` runs real app

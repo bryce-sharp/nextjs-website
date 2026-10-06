@@ -217,7 +217,7 @@ export async function connectBankAction(
     });
     if (rows.length > 0) await db.insert(plaidAccounts).values(rows);
     // The first sync also switches on Plaid's update webhooks for this item.
-    const summary = describe(await syncPlaidItem(itemRowId));
+    const summary = describe(await syncPlaidItem(itemRowId, "connect"));
     revalidateFinance();
     return { ok: true, duplicateOf: sameBank[0]?.name ?? null, summary };
   } catch (err) {
@@ -339,7 +339,7 @@ export async function syncBankAction(
   const groupId = await requireBankAdmin();
   const item = await getPlaidItemForGroup(plaidItemId, groupId);
   if (!item) return { error: "That bank connection no longer exists." };
-  const outcome = await syncPlaidItem(item.id);
+  const outcome = await syncPlaidItem(item.id, "manual");
   revalidateFinance();
   return outcome.ok ? { ok: true, summary: describe(outcome) } : { error: describe(outcome) };
 }
@@ -355,7 +355,7 @@ export async function markBankRepairedAction(
     .update(plaidItems)
     .set({ status: "ok", lastError: null })
     .where(eq(plaidItems.id, item.id));
-  const outcome = await syncPlaidItem(item.id);
+  const outcome = await syncPlaidItem(item.id, "reconnect");
   revalidateFinance();
   return outcome.ok ? { ok: true, summary: describe(outcome) } : { error: describe(outcome) };
 }

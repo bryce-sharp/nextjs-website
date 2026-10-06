@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { plaidConfigured } from "@/lib/plaid/client";
 import { handlePlaidWebhook, verifyPlaidWebhook, type PlaidWebhook } from "@/lib/plaid/webhook";
+import { logEvent } from "@/lib/events";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/plaid/webhook — Plaid's calls about connected banks. Public on
@@ -14,6 +15,8 @@ export async function POST(req: NextRequest) {
 
   const body = await req.text();
   if (!(await verifyPlaidWebhook(body, req.headers.get("plaid-verification")))) {
+    // Logged without the body: an unverified caller's content is not worth keeping.
+    await logEvent({ groupId: null, source: "plaid", kind: "webhook_rejected", message: "A webhook failed its signature check" });
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
@@ -21,6 +24,7 @@ export async function POST(req: NextRequest) {
   try {
     hook = JSON.parse(body) as PlaidWebhook;
   } catch {
+    await logEvent({ groupId: null, source: "plaid", kind: "webhook_rejected", message: "A signed webhook was not JSON" });
     return NextResponse.json({ ok: false }, { status: 400 });
   }
 

@@ -30,6 +30,20 @@ export function formatDate(value: string | Date | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "—" : dateFmt.format(d);
 }
 
+/** "Oct 5, 9:19 PM" in a household's time zone. Format on the server so the
+ *  page never depends on the viewer's clock. */
+export function formatDateTime(value: string | Date, timeZone: string): string {
+  const d = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(d);
+}
+
 export function formatMiles(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return `${numFmt.format(value)} mi`;
