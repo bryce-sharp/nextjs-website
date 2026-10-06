@@ -52,7 +52,13 @@ export function createAppTheme(accent?: string | null) {
       fontFamily: font.body,
       h1: { fontFamily: font.display, fontWeight: 700, letterSpacing: "-0.02em" },
       h2: { fontFamily: font.display, fontWeight: 700, letterSpacing: "-0.02em" },
-      h3: { fontFamily: font.display, fontWeight: 700, letterSpacing: "-0.02em" },
+      h3: {
+        fontFamily: font.display,
+        fontWeight: 700,
+        letterSpacing: "-0.02em",
+        // Page titles: 48px crowds a phone screen.
+        "@media (max-width:599.95px)": { fontSize: "2.25rem" },
+      },
       h4: { fontFamily: font.display, fontWeight: 600, letterSpacing: "-0.01em" },
       h5: { fontFamily: font.display, fontWeight: 600 },
       h6: { fontFamily: font.display, fontWeight: 600 },

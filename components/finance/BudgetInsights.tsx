@@ -79,7 +79,7 @@ function PillRow({
         borderRadius: 1,
         bgcolor: tint,
         px: 1.25,
-        py: 0.75,
+        py: { xs: 0.5, sm: 0.75 },
         minHeight: 36,
       }}
     >
@@ -143,20 +143,27 @@ function Column({
 
 type TileData = { label: string; value: string; sub: string; color?: string };
 
+// Three across on every screen; on a phone each tile shrinks instead of stacking.
 function Tile({ label, value, sub, color }: TileData) {
   return (
-    <Box sx={{ bgcolor: "action.hover", borderRadius: 1, px: 1.5, py: 1.25 }}>
+    <Box sx={{ bgcolor: "action.hover", borderRadius: 1, px: { xs: 1, sm: 1.5 }, py: { xs: 1, sm: 1.25 }, minWidth: 0 }}>
       <Typography
         variant="caption"
         color="text.secondary"
-        sx={{ textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}
+        component="div"
+        noWrap
+        sx={{ textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600, fontSize: { xs: 10.5, sm: undefined } }}
       >
         {label}
       </Typography>
-      <Typography variant="h6" component="div" sx={{ color }}>
+      <Typography
+        variant="h6"
+        component="div"
+        sx={{ color, fontSize: { xs: "0.95rem", sm: undefined }, overflowWrap: "anywhere" }}
+      >
         {value}
       </Typography>
-      <Typography variant="caption" color="text.secondary">
+      <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.3 }}>
         {sub}
       </Typography>
     </Box>
@@ -168,7 +175,7 @@ function TileRow({ children }: { children: React.ReactNode }) {
     <Box
       sx={{
         display: "grid",
-        gridTemplateColumns: { xs: "1fr", sm: "repeat(3, minmax(0, 1fr))" },
+        gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
         gap: 1,
         mt: 1.5,
       }}
@@ -262,8 +269,8 @@ function AllMoney({ d }: { d: BudgetInsightsData["all"] }) {
   return (
     <>
       <TileRow>
-        <Tile label="Money in" value={formatMoney(d.moneyIn)} sub="income + reimbursements" />
-        <Tile label="Money out" value={formatMoney(d.moneyOut)} sub="every dollar spent" />
+        <Tile label="Money in" value={formatMoney(d.moneyIn)} sub="income" />
+        <Tile label="Money out" value={formatMoney(d.moneyOut)} sub="spent, after refunds and paybacks" />
         <Tile label="Kept" value={formatMoneySigned(d.moneyIn - d.moneyOut)} sub="in minus out" />
       </TileRow>
 
@@ -333,6 +340,8 @@ function AllMoney({ d }: { d: BudgetInsightsData["all"] }) {
 function DiscretionaryView({ d }: { d: BudgetInsightsData }) {
   const theme = useTheme();
   const tint = alpha(theme.palette.primary.main, 0.1);
+  // When every top spot is a single purchase, it lists the same three as Top purchases.
+  const spotsRepeat = d.topMerchants.every((m) => m.count === 1);
   const hasTop = d.topPurchases.length > 0 || d.topMerchants.length > 0;
   const hasDetails = d.details.reimbursed > 0 || d.details.recentMonths.length > 0;
   const { tag, lane, toggle } = useTableFilter();
@@ -378,7 +387,7 @@ function DiscretionaryView({ d }: { d: BudgetInsightsData }) {
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+              gridTemplateColumns: { xs: "1fr", sm: spotsRepeat ? "1fr" : "1fr 1fr" },
               gap: 2,
             }}
           >
@@ -395,7 +404,7 @@ function DiscretionaryView({ d }: { d: BudgetInsightsData }) {
                 ))}
               </Column>
             ) : null}
-            {d.topMerchants.length > 0 ? (
+            {d.topMerchants.length > 0 && !(spotsRepeat && d.topPurchases.length > 0) ? (
               <Column title="Top spots">
                 {d.topMerchants.map((m, i) => (
                   <PillRow
