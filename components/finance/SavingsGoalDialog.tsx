@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import Dialog from "@mui/material/Dialog";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
@@ -49,6 +51,8 @@ export default function SavingsGoalDialog({
   /** Years for the month picker (current year back through the oldest data). */
   yearOptions: number[];
 }) {
+  // Phones get the whole screen: room for the fields and the keyboard.
+  const fullScreen = useMediaQuery(useTheme().breakpoints.down("sm"));
   const [flavor, setFlavor] = React.useState<"adjust" | "new">(
     activeGoal ? "adjust" : "new",
   );
@@ -89,7 +93,7 @@ export default function SavingsGoalDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs" fullScreen={fullScreen}>
       <DialogTitle>Savings goal</DialogTitle>
       <form action={handle}>
         <DialogContent sx={{ pt: 1 }}>

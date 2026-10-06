@@ -44,14 +44,18 @@ export default function SankeyChart({
   nodes,
   links,
   height = 400,
+  minWidth = 0,
 }: {
   nodes: SankeyNodeInput[];
   links: SankeyLinkInput[];
   height?: number;
+  /** Narrower containers scroll sideways instead of squeezing labels together. */
+  minWidth?: number;
 }) {
   const theme = useTheme();
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const [width, setWidth] = React.useState(0);
+  const [measured, setWidth] = React.useState(0);
+  const width = measured > 0 ? Math.max(measured, minWidth) : 0;
 
   // Measure the container (and re-measure on resize). Setting state inside the
   // observer callback is async — not the setState-in-effect-body lint trap.
@@ -114,14 +118,14 @@ export default function SankeyChart({
   };
 
   return (
-    <Box ref={containerRef} sx={{ width: "100%" }}>
+    <Box ref={containerRef} sx={{ width: "100%", overflowX: "auto", overscrollBehaviorX: "contain" }}>
       {laid ? (
         <svg
           width={width}
           height={height}
           role="img"
           aria-label="Money flow diagram"
-          style={{ display: "block", maxWidth: "100%" }}
+          style={{ display: "block" }}
         >
           {/* Ribbons first (under the nodes) — colored by their DESTINATION,
               so what a dollar becomes is what you see. */}

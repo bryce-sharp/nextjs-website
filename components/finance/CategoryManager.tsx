@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import Dialog from "@mui/material/Dialog";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
@@ -36,6 +38,8 @@ export default function CategoryManager({
   onClose: () => void;
   usage: CategoryUsage[];
 }) {
+  // Phones get the whole screen: room for the fields and the keyboard.
+  const fullScreen = useMediaQuery(useTheme().breakpoints.down("sm"));
   const [renaming, setRenaming] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState("");
   const [merging, setMerging] = React.useState<string | null>(null);
@@ -59,7 +63,7 @@ export default function CategoryManager({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs" fullScreen={fullScreen}>
       <DialogTitle>Categories</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>

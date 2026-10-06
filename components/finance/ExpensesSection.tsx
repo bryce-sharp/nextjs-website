@@ -6,6 +6,7 @@ import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
+import ButtonBase from "@mui/material/ButtonBase";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Chip from "@mui/material/Chip";
@@ -34,6 +35,20 @@ const NECESSITY_META: Record<
   lifestyle: { label: "lifestyle", color: "warning" },
   commitment: { label: "commitment", color: "success" },
 };
+const NECESSITY_TEXT = { default: "text.secondary", warning: "warning.main", success: "success.main" } as const;
+
+// One stacked row per bill on phones, where the table needs ~640px.
+const phoneRowSx = {
+  display: "flex",
+  width: "100%",
+  alignItems: "center",
+  gap: 1.5,
+  px: 1.5,
+  py: 1.25,
+  borderTop: 1,
+  borderColor: "divider",
+  textAlign: "left",
+} as const;
 
 export type ExpenseTotals = {
   monthlyNet: number;
@@ -56,16 +71,22 @@ function Tile({
   value,
   sub,
   color,
+  wide = false,
   children,
 }: {
   label: string;
   value?: string;
   sub?: string;
   color?: string;
+  /** Spans both columns on phones (a list needs the width). */
+  wide?: boolean;
   children?: React.ReactNode;
 }) {
   return (
-    <Paper variant="outlined" sx={{ p: 2 }}>
+    <Paper
+      variant="outlined"
+      sx={{ p: { xs: 1.5, sm: 2 }, minWidth: 0, gridColumn: wide ? { xs: "1 / -1", md: "auto" } : undefined }}
+    >
       <Typography
         variant="caption"
         color="text.secondary"
@@ -74,7 +95,7 @@ function Tile({
         {label}
       </Typography>
       {value != null ? (
-        <Typography variant="h5" component="div" sx={{ mt: 0.5, color }}>
+        <Typography variant="h5" component="div" sx={{ mt: 0.5, color, fontSize: { xs: "1.25rem", sm: undefined } }}>
           {value}
         </Typography>
       ) : null}
@@ -168,7 +189,7 @@ export default function ExpensesSection({
         sx={{
           display: "grid",
           gap: 1.5,
-          gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" },
+          gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(4, minmax(0, 1fr))" },
           mb: 2,
         }}
       >
@@ -187,6 +208,7 @@ export default function ExpensesSection({
           value={formatMoney(totals.discretionLeft)}
           color={totals.discretionLeft >= 0 ? "success.main" : "warning.main"}
           sub={totals.savingsGoal > 0 ? "net income − fixed − take-home savings" : "net income − fixed"}
+          wide
         />
         {/* No headline on purpose: the sum is always monthly net minus the
             savings goal (fixed + discretion) — the information here is the
@@ -194,6 +216,7 @@ export default function ExpensesSection({
         <Tile
           label="Where it flows out"
           sub="budgeted per source · annual bills amortized, not billed"
+          wide
         >
           <Stack spacing={0.5} sx={{ mt: 1 }}>
             {totals.expectedOutflows.length === 0 ? (
@@ -259,7 +282,7 @@ export default function ExpensesSection({
                   />
                   <Typography
                     variant="body2"
-                    sx={{ minWidth: 110, textAlign: "right" }}
+                    sx={{ minWidth: { sm: 110 }, textAlign: "right", whiteSpace: "nowrap" }}
                   >
                     {formatMoney(n.monthly)} · {Math.round(pct)}%
                   </Typography>
@@ -279,119 +302,194 @@ export default function ExpensesSection({
           </Typography>
         </Paper>
       ) : (
-        <TableContainer
-          component={Paper}
-          variant="outlined"
-          sx={{ overflowX: "auto" }}
-        >
-          <Table size="small" sx={{ minWidth: 640 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell>Name</TableCell>
-                <TableCell>Necessity</TableCell>
-                <TableCell align="right">Amount</TableCell>
-                <TableCell align="right">Monthly</TableCell>
-                <TableCell>Paid from</TableCell>
-                <TableCell>Due</TableCell>
-                {editable ? <TableCell align="right" /> : null}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {categoryOrder.map((cat) => (
-                <React.Fragment key={cat}>
-                  <TableRow sx={{ bgcolor: "action.hover" }}>
-                    <TableCell colSpan={3} sx={{ fontWeight: 700 }}>
-                      {cat}
-                    </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700 }}>
-                      {formatMoney(categorySubtotal.get(cat) ?? 0)}
-                    </TableCell>
-                    <TableCell colSpan={editable ? 3 : 2} />
-                  </TableRow>
-                  {(byCategory.get(cat) ?? []).map((e) => {
-                    const meta = NECESSITY_META[e.necessity] ?? {
-                      label: e.necessity,
-                      color: "default" as const,
-                    };
-                    return (
-                      <TableRow key={e.id} hover>
-                        <TableCell sx={{ pl: 3, whiteSpace: "nowrap" }}>
-                          {e.name}
-                          {e.isEstimate ? (
-                            <Chip
-                              label="estimate"
-                              size="small"
-                              variant="outlined"
-                              sx={{ ml: 1 }}
-                            />
-                          ) : null}
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            size="small"
-                            color={meta.color}
-                            variant="outlined"
-                            label={meta.label}
-                          />
-                        </TableCell>
-                        <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+        <>
+          {/* Phones: bills under their category, the payment on the right; tap to edit. */}
+          <Paper variant="outlined" sx={{ display: { xs: "block", sm: "none" }, overflow: "hidden" }}>
+            {categoryOrder.map((cat) => (
+              <React.Fragment key={cat}>
+                <Stack
+                  direction="row"
+                  justifyContent="space-between"
+                  spacing={1}
+                  sx={{ px: 1.5, py: 1, bgcolor: "action.hover", borderTop: 1, borderColor: "divider", mt: "-1px" }}
+                >
+                  <Typography variant="body2" fontWeight={700} noWrap>
+                    {cat}
+                  </Typography>
+                  <Typography variant="body2" fontWeight={700} sx={{ whiteSpace: "nowrap" }}>
+                    {formatMoney(categorySubtotal.get(cat) ?? 0)}/mo
+                  </Typography>
+                </Stack>
+                {(byCategory.get(cat) ?? []).map((e) => {
+                  const meta = NECESSITY_META[e.necessity] ?? {
+                    label: e.necessity,
+                    color: "default" as const,
+                  };
+                  const dueNow = e.paymentsPerYear !== 12 && e.dueMonths?.includes(viewedMonthNum);
+                  const row = (
+                    <>
+                      <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" fontWeight={600} noWrap>
+                            {e.name}
+                          </Typography>
+                          {e.isEstimate ? <Chip label="estimate" size="small" variant="outlined" /> : null}
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary" component="div" noWrap>
+                          <Box component="span" sx={{ color: NECESSITY_TEXT[meta.color] }}>
+                            {meta.label}
+                          </Box>
+                          {e.paidFromName ? ` · ${e.paidFromName}` : ""}
+                          {dueNow ? (
+                            <Box component="span" sx={{ color: "warning.main", fontWeight: 600 }}>
+                              {` · due this month${e.dueDay ? ` (${e.dueDay})` : ""}`}
+                            </Box>
+                          ) : e.dueDay ? (
+                            ` · due ${e.dueDay}`
+                          ) : (
+                            ""
+                          )}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+                        <Typography variant="body2" fontWeight={600}>
                           {formatMoney(e.amount)}
-                          {e.paymentsPerYear !== 12 ? (
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              {" "}
-                              ×{e.paymentsPerYear}/yr
-                            </Typography>
-                          ) : null}
-                        </TableCell>
-                        <TableCell align="right">
-                          {formatMoney(e.monthly)}
-                        </TableCell>
-                        <TableCell>{e.paidFromName ?? "—"}</TableCell>
-                        <TableCell
-                          sx={{ color: "text.secondary", whiteSpace: "nowrap" }}
-                        >
-                          {e.paymentsPerYear !== 12 &&
-                          e.dueMonths?.includes(viewedMonthNum) ? (
-                            <Tooltip
-                              title={`Bills its full ${formatMoney(e.amount)} this month — the rest of the year it only reserves ${formatMoney(e.monthly)}/mo`}
-                            >
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" component="div">
+                          {e.paymentsPerYear === 12
+                            ? "monthly"
+                            : `×${e.paymentsPerYear}/yr · ${formatMoney(e.monthly)}/mo`}
+                        </Typography>
+                      </Box>
+                    </>
+                  );
+                  return editable ? (
+                    <ButtonBase key={e.id} onClick={() => setEditing(e)} aria-label={`Edit ${e.name}`} sx={phoneRowSx}>
+                      {row}
+                    </ButtonBase>
+                  ) : (
+                    <Box key={e.id} sx={phoneRowSx}>
+                      {row}
+                    </Box>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </Paper>
+          <TableContainer
+            component={Paper}
+            variant="outlined"
+            sx={{ overflowX: "auto", display: { xs: "none", sm: "block" } }}
+          >
+            <Table size="small" sx={{ minWidth: 640 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Name</TableCell>
+                  <TableCell>Necessity</TableCell>
+                  <TableCell align="right">Amount</TableCell>
+                  <TableCell align="right">Monthly</TableCell>
+                  <TableCell>Paid from</TableCell>
+                  <TableCell>Due</TableCell>
+                  {editable ? <TableCell align="right" /> : null}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {categoryOrder.map((cat) => (
+                  <React.Fragment key={cat}>
+                    <TableRow sx={{ bgcolor: "action.hover" }}>
+                      <TableCell colSpan={3} sx={{ fontWeight: 700 }}>
+                        {cat}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>
+                        {formatMoney(categorySubtotal.get(cat) ?? 0)}
+                      </TableCell>
+                      <TableCell colSpan={editable ? 3 : 2} />
+                    </TableRow>
+                    {(byCategory.get(cat) ?? []).map((e) => {
+                      const meta = NECESSITY_META[e.necessity] ?? {
+                        label: e.necessity,
+                        color: "default" as const,
+                      };
+                      return (
+                        <TableRow key={e.id} hover>
+                          <TableCell sx={{ pl: 3, whiteSpace: "nowrap" }}>
+                            {e.name}
+                            {e.isEstimate ? (
+                              <Chip
+                                label="estimate"
+                                size="small"
+                                variant="outlined"
+                                sx={{ ml: 1 }}
+                              />
+                            ) : null}
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              color={meta.color}
+                              variant="outlined"
+                              label={meta.label}
+                            />
+                          </TableCell>
+                          <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                            {formatMoney(e.amount)}
+                            {e.paymentsPerYear !== 12 ? (
                               <Typography
                                 component="span"
-                                variant="body2"
-                                sx={{ color: "warning.main", fontWeight: 600 }}
+                                variant="caption"
+                                color="text.secondary"
                               >
-                                {e.dueDay ?? "this month"}
+                                {" "}
+                                ×{e.paymentsPerYear}/yr
                               </Typography>
-                            </Tooltip>
-                          ) : (
-                            (e.dueDay ?? "—")
-                          )}
-                        </TableCell>
-                        {editable ? (
-                          <TableCell align="right">
-                            <Tooltip title={`Edit ${e.name}`}>
-                              <IconButton
-                                size="small"
-                                onClick={() => setEditing(e)}
-                                aria-label={`Edit ${e.name}`}
-                              >
-                                <EditOutlinedIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
+                            ) : null}
                           </TableCell>
-                        ) : null}
-                      </TableRow>
-                    );
-                  })}
-                </React.Fragment>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+                          <TableCell align="right">
+                            {formatMoney(e.monthly)}
+                          </TableCell>
+                          <TableCell>{e.paidFromName ?? "—"}</TableCell>
+                          <TableCell
+                            sx={{ color: "text.secondary", whiteSpace: "nowrap" }}
+                          >
+                            {e.paymentsPerYear !== 12 &&
+                            e.dueMonths?.includes(viewedMonthNum) ? (
+                              <Tooltip
+                                title={`Bills its full ${formatMoney(e.amount)} this month — the rest of the year it only reserves ${formatMoney(e.monthly)}/mo`}
+                              >
+                                <Typography
+                                  component="span"
+                                  variant="body2"
+                                  sx={{ color: "warning.main", fontWeight: 600 }}
+                                >
+                                  {e.dueDay ?? "this month"}
+                                </Typography>
+                              </Tooltip>
+                            ) : (
+                              (e.dueDay ?? "—")
+                            )}
+                          </TableCell>
+                          {editable ? (
+                            <TableCell align="right">
+                              <Tooltip title={`Edit ${e.name}`}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => setEditing(e)}
+                                  aria-label={`Edit ${e.name}`}
+                                >
+                                  <EditOutlinedIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </TableCell>
+                          ) : null}
+                        </TableRow>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </>
       )}
 
       {editing !== null ? (

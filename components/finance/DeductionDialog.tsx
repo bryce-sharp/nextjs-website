@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import Dialog from "@mui/material/Dialog";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
@@ -75,6 +77,8 @@ export default function DeductionDialog({
   /** Where a deduction can land (non-archived financial accounts). */
   accounts: { id: number; name: string }[];
 }) {
+  // Phones get the whole screen: room for the fields and the keyboard.
+  const fullScreen = useMediaQuery(useTheme().breakpoints.down("sm"));
   const [flavor, setFlavor] = React.useState<"fix" | "asof">("fix");
   const [startMonth, setStartMonth] = React.useState(defaultMonth);
   const [amountMode, setAmountMode] = React.useState<"dollar" | "percent">(
@@ -108,7 +112,7 @@ export default function DeductionDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs" fullScreen={fullScreen}>
       <DialogTitle>
         {deduction ? `Edit ${deduction.name}` : `Add a deduction for ${personName}`}
       </DialogTitle>
