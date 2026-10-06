@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import Dialog from "@mui/material/Dialog";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
@@ -62,6 +64,8 @@ export default function CompensationDialog({
   yearOptions: number[];
   defaultMonth: string; // "YYYY-MM"
 }) {
+  // Phones get the whole screen: room for the fields and the keyboard.
+  const fullScreen = useMediaQuery(useTheme().breakpoints.down("sm"));
   const [flavor, setFlavor] = React.useState<"fix" | "raise">(
     current ? "raise" : "fix", // a raise is the common reason to open this
   );
@@ -101,7 +105,7 @@ export default function CompensationDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs" fullScreen={fullScreen}>
       <DialogTitle>
         {current ? `${personName}'s compensation` : `Set up ${personName}'s income`}
       </DialogTitle>
@@ -160,7 +164,7 @@ export default function CompensationDialog({
             <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
               Net pay is derived: gross − payroll deductions. The rest is optional context.
             </Typography>
-            <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr 1fr" } }}>
               <NumberField
                 name="baseSalary"
                 label="Base salary"

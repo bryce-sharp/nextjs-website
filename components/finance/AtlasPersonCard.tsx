@@ -7,6 +7,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import Avatar from "@mui/material/Avatar";
 import Button from "@mui/material/Button";
+import ButtonBase from "@mui/material/ButtonBase";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Chip from "@mui/material/Chip";
@@ -81,6 +82,19 @@ const TYPE_LABEL: Record<string, string> = {
   tax: "Tax",
   employer_benefit: "Employer",
 };
+
+// One stacked row per item on phones, where a table would need ~600px.
+const phoneRowSx = {
+  display: "flex",
+  width: "100%",
+  alignItems: "center",
+  gap: 1.5,
+  px: 1,
+  py: 1.25,
+  borderBottom: 1,
+  borderColor: "divider",
+  textAlign: "left",
+} as const;
 
 // One person's income: the compensation summary tiles (all derived — the
 // paycheck math lives in lib/queries/finance-atlas) + their deductions table.
@@ -209,66 +223,118 @@ export default function AtlasPersonCard({
               No deductions yet — add taxes, insurance, 401k… to derive net pay.
             </Typography>
           ) : (
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Type</TableCell>
-                  <TableCell align="right">$ / check</TableCell>
-                  <TableCell align="right">$ / mo</TableCell>
-                  <TableCell align="right">% of gross</TableCell>
-                  {editable ? <TableCell align="right" /> : null}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {[...payroll, ...employer].map((d) => (
-                  <TableRow key={d.id} hover>
-                    <TableCell>
-                      {d.name}
-                      {d.source === "employer" ? (
-                        <Chip label="employer-paid" size="small" sx={{ ml: 1 }} variant="outlined" />
-                      ) : null}
-                      {accountName(d.depositAccountId) ? (
-                        <Typography variant="caption" color="text.secondary" component="div">
-                          into {accountName(d.depositAccountId)}
-                        </Typography>
-                      ) : null}
-                    </TableCell>
-                    <TableCell>{d.type ? (TYPE_LABEL[d.type] ?? d.type) : "—"}</TableCell>
-                    <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
-                      {formatMoney(d.effectivePerPaycheck)}
-                    </TableCell>
-                    <TableCell align="right">{formatMoney(d.monthly)}</TableCell>
-                    <TableCell align="right" sx={{ color: "text.secondary" }}>
-                      {d.isPercent ? (
-                        <Tooltip title="Defined as % of gross — the dollar amount follows raises automatically">
-                          <Typography component="span" variant="body2" fontWeight={700}>
-                            {d.pctOfGross}%
+            <>
+              {/* Phones: name and where it goes over the monthly cost; tap to edit. */}
+              <Box sx={{ display: { xs: "block", sm: "none" }, mx: -1 }}>
+                {[...payroll, ...employer].map((d) => {
+                  const row = (
+                    <>
+                      <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" fontWeight={600} noWrap>
+                            {d.name}
                           </Typography>
-                        </Tooltip>
-                      ) : d.pctOfGross != null ? (
-                        `${d.pctOfGross}%`
-                      ) : (
-                        "—"
-                      )}
-                    </TableCell>
-                    {editable ? (
-                      <TableCell align="right">
-                        <Tooltip title={`Edit ${d.name}`}>
-                          <IconButton
-                            size="small"
-                            onClick={() => setEditingDeduction(d)}
-                            aria-label={`Edit ${d.name}`}
-                          >
-                            <EditOutlinedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                    ) : null}
+                          {d.source === "employer" ? (
+                            <Chip label="employer-paid" size="small" variant="outlined" />
+                          ) : null}
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary" component="div" noWrap>
+                          {[
+                            d.type ? (TYPE_LABEL[d.type] ?? d.type) : null,
+                            accountName(d.depositAccountId) ? `into ${accountName(d.depositAccountId)}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "—"}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+                        <Typography variant="body2" fontWeight={600}>
+                          {formatMoney(d.monthly)}/mo
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" component="div">
+                          {formatMoney(d.effectivePerPaycheck)}/check
+                          {d.pctOfGross != null ? ` · ${d.pctOfGross}%` : ""}
+                        </Typography>
+                      </Box>
+                    </>
+                  );
+                  return editable ? (
+                    <ButtonBase
+                      key={d.id}
+                      onClick={() => setEditingDeduction(d)}
+                      aria-label={`Edit ${d.name}`}
+                      sx={phoneRowSx}
+                    >
+                      {row}
+                    </ButtonBase>
+                  ) : (
+                    <Box key={d.id} sx={phoneRowSx}>
+                      {row}
+                    </Box>
+                  );
+                })}
+              </Box>
+              <Table size="small" sx={{ display: { xs: "none", sm: "table" } }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Name</TableCell>
+                    <TableCell>Type</TableCell>
+                    <TableCell align="right">$ / check</TableCell>
+                    <TableCell align="right">$ / mo</TableCell>
+                    <TableCell align="right">% of gross</TableCell>
+                    {editable ? <TableCell align="right" /> : null}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHead>
+                <TableBody>
+                  {[...payroll, ...employer].map((d) => (
+                    <TableRow key={d.id} hover>
+                      <TableCell>
+                        {d.name}
+                        {d.source === "employer" ? (
+                          <Chip label="employer-paid" size="small" sx={{ ml: 1 }} variant="outlined" />
+                        ) : null}
+                        {accountName(d.depositAccountId) ? (
+                          <Typography variant="caption" color="text.secondary" component="div">
+                            into {accountName(d.depositAccountId)}
+                          </Typography>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>{d.type ? (TYPE_LABEL[d.type] ?? d.type) : "—"}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                        {formatMoney(d.effectivePerPaycheck)}
+                      </TableCell>
+                      <TableCell align="right">{formatMoney(d.monthly)}</TableCell>
+                      <TableCell align="right" sx={{ color: "text.secondary" }}>
+                        {d.isPercent ? (
+                          <Tooltip title="Defined as % of gross — the dollar amount follows raises automatically">
+                            <Typography component="span" variant="body2" fontWeight={700}>
+                              {d.pctOfGross}%
+                            </Typography>
+                          </Tooltip>
+                        ) : d.pctOfGross != null ? (
+                          `${d.pctOfGross}%`
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      {editable ? (
+                        <TableCell align="right">
+                          <Tooltip title={`Edit ${d.name}`}>
+                            <IconButton
+                              size="small"
+                              onClick={() => setEditingDeduction(d)}
+                              aria-label={`Edit ${d.name}`}
+                            >
+                              <EditOutlinedIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      ) : null}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </>
           )}
         </>
       ) : (

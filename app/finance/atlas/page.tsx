@@ -159,7 +159,7 @@ export default async function AtlasPage({
   const sankeyHeight = Math.max(400, Math.max(middleCount, rightCount) * 48);
 
   return (
-    <Container maxWidth="md" sx={{ py: { xs: 4, md: 6 } }}>
+    <Container maxWidth="md" sx={{ py: { xs: 3, md: 6 } }}>
       <Stack
         direction="row"
         alignItems="flex-start"
@@ -168,7 +168,7 @@ export default async function AtlasPage({
         sx={{ mb: 3, flexWrap: "wrap", rowGap: 2 }}
       >
         <Stack spacing={0.5}>
-          <Typography variant="h3" component="h1">
+          <Typography variant="h3" component="h1" sx={{ fontSize: { xs: "2.25rem", sm: undefined } }}>
             ATLAS
           </Typography>
           <Typography
@@ -176,6 +176,7 @@ export default async function AtlasPage({
             component="p"
             color="text.secondary"
             fontWeight={400}
+            sx={{ fontSize: { xs: "1rem", sm: undefined } }}
           >
             Asset Tracking and Long-term Accounting System
           </Typography>
@@ -195,7 +196,7 @@ export default async function AtlasPage({
       ) : null}
 
       {/* One long page, three destinations — anchor chips instead of tabs. */}
-      <Stack direction="row" spacing={1} sx={{ mb: 3 }}>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ mb: 3, flexWrap: "wrap" }}>
         <Chip component="a" href="#income" clickable size="small" label="Income" />
         <Chip component="a" href="#savings" clickable size="small" label="Savings goal" />
         {flows.links.length > 0 ? (
@@ -247,9 +248,10 @@ export default async function AtlasPage({
             sx={{ px: 1, mb: 1.5, display: "block" }}
           >
             The monthly plan: paycheck → deductions &amp; net → bills, savings
-            goal &amp; discretionary. Hover a ribbon for the numbers.
+            goal &amp; discretionary. Hover a ribbon for the numbers; on a phone,
+            swipe the chart sideways.
           </Typography>
-          <SankeyChart nodes={flows.nodes} links={flows.links} height={sankeyHeight} />
+          <SankeyChart nodes={flows.nodes} links={flows.links} height={sankeyHeight} minWidth={640} />
         </Paper>
       ) : null}
 
