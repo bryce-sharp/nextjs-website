@@ -1,5 +1,6 @@
 import Link from "@/components/shared/AppLink";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import Container from "@mui/material/Container";
 import Stack from "@mui/material/Stack";
 import Box from "@mui/material/Box";
@@ -31,6 +32,7 @@ import {
 import { listProfiles } from "@/lib/queries/profiles";
 import { listBankAlerts } from "@/lib/queries/finance-plaid";
 import { plaidConfigured } from "@/lib/plaid/client";
+import { staleBanks, syncBanks } from "@/lib/plaid/sync";
 import { currentMonthISO, lastDayOfMonth } from "@/lib/finance/parse";
 import { OUT_CATEGORIES, REIMBURSEMENT, isMoneyOut, isUnlinkedBillPayment } from "@/lib/finance/cashflow";
 import { getGroupTimezone } from "@/lib/queries/group";
@@ -40,6 +42,7 @@ import BudgetSummary from "@/components/finance/BudgetSummary";
 import BudgetInsights from "@/components/finance/BudgetInsights";
 import TransactionsTable from "@/components/finance/TransactionsTable";
 import FundsPanel from "@/components/finance/FundsPanel";
+import RefreshAfterSync from "@/components/finance/RefreshAfterSync";
 
 export const metadata = { title: "Budget" };
 
@@ -67,7 +70,7 @@ export default async function BudgetPage({
   const groupId = session.groupId;
   const [
     [view, txns, accounts, monthsWithData, bills, groupProfiles, recentMonths, trend, suggest, categories, editor],
-    [flow, allTrend, tagSpend, lanes, sources, incomeCategories, bankAlerts],
+    [flow, allTrend, tagSpend, lanes, sources, incomeCategories, bankAlerts, stale],
   ] = await Promise.all([
     Promise.all([
       getBudgetMonth(month),
@@ -90,8 +93,12 @@ export default async function BudgetPage({
       moneyInBySource(groupId, monthRange),
       listIncomeCategories(),
       plaidConfigured() ? listBankAlerts() : Promise.resolve([]),
+      staleBanks(groupId),
     ]),
   ]);
+  // Bank data a few hours old (a webhook that never came): sync once this page
+  // is sent; RefreshAfterSync then re-renders it with whatever arrived.
+  if (stale.length) after(() => syncBanks(stale, "stale"));
   const c = view.computation;
   const disc = c.discretionary;
 
@@ -181,6 +188,7 @@ export default async function BudgetPage({
 
   return (
     <Container maxWidth="md" sx={{ py: { xs: 4, md: 6 } }}>
+      <RefreshAfterSync active={stale.length > 0} />
       <Stack
         direction="row"
         alignItems="flex-start"

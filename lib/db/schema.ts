@@ -1121,3 +1121,30 @@ export type WeightGoal = typeof weightGoals.$inferSelect;
 export type NewWeightGoal = typeof weightGoals.$inferInsert;
 export type WeightPlan = typeof weightPlans.$inferSelect;
 export type NewWeightPlan = typeof weightPlans.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EVENT LOG — one place for "what happened when" across the app: a bank's
+// webhook arrived, a sync ran and what started it. Server logs last an hour on
+// the Hobby plan; this lasts 180 days (the daily cron prunes older rows).
+// `source` names the subsystem (plaid…), `kind` the event (webhook, sync…),
+// `message` reads as a sentence, and `data` holds the details.
+// ─────────────────────────────────────────────────────────────────────────────
+export const eventLog = pgTable(
+  "event_log",
+  {
+    id: serial("id").primaryKey(),
+    // Null for events that belong to no household (a webhook that failed its check).
+    groupId: integer("group_id").references(() => groups.id, { onDelete: "cascade" }),
+    source: varchar("source", { length: 40 }).notNull(),
+    kind: varchar("kind", { length: 60 }).notNull(),
+    message: text("message"),
+    data: jsonb("data").$type<Record<string, unknown>>(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("idx_event_log_group_time").on(t.groupId, t.createdAt),
+    index("idx_event_log_source_time").on(t.source, t.createdAt),
+  ],
+);
+
+export type EventLogRow = typeof eventLog.$inferSelect;

@@ -27,6 +27,8 @@ async function main() {
   const items = await sql`
     SELECT id, group_id, institution_name, status, last_error, sync_from::text AS sync_from,
            to_char(last_synced_at AT TIME ZONE 'America/Chicago', 'Mon DD HH24:MI') AS last_synced,
+           (SELECT to_char(max(e.created_at) AT TIME ZONE 'America/Chicago', 'Mon DD HH24:MI') FROM event_log e
+             WHERE e.source = 'plaid' AND e.kind = 'webhook' AND (e.data->>'item')::int = plaid_items.id) AS last_webhook,
            cursor IS NOT NULL AS has_cursor
     FROM plaid_items ORDER BY id`;
   if (items.length === 0) {
@@ -60,6 +62,15 @@ async function main() {
   );
 
   const groupIds = [...new Set(items.map((i) => i.group_id))];
+
+  console.log("RECENT BANK EVENTS (webhooks and syncs, newest first)");
+  console.table(
+    await sql`
+      SELECT to_char(created_at AT TIME ZONE 'America/Chicago', 'Mon DD HH24:MI') AS at, kind, message
+      FROM event_log
+      WHERE source = 'plaid' AND (group_id = ANY(${groupIds}) OR group_id IS NULL)
+      ORDER BY created_at DESC, id DESC LIMIT 12`,
+  );
   const cutover = items.map((i) => i.sync_from).sort()[0];
 
   console.log(`LEDGER ROWS THE BANK OWNS (since ${cutover})`);

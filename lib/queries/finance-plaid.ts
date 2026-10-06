@@ -1,8 +1,9 @@
 import "server-only";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, max, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { plaidAccounts, plaidItems, type PlaidItem } from "@/lib/db/schema";
+import { eventLog, plaidAccounts, plaidItems, type PlaidItem } from "@/lib/db/schema";
 import { requireGroupId } from "@/lib/session";
+import { listEvents, type EventView } from "@/lib/events";
 
 export type BankAccountRow = {
   id: number;
@@ -19,6 +20,8 @@ export type BankConnectionRow = {
   status: string;
   lastError: string | null;
   lastSyncedAt: Date | null;
+  /** When Plaid last sent a webhook about this login (null = none on record). */
+  lastWebhookAt: Date | null;
   syncFrom: string;
   accounts: BankAccountRow[];
 };
@@ -56,6 +59,7 @@ export async function listBankConnections(): Promise<BankConnectionRow[]> {
         status: r.status,
         lastError: r.lastError,
         lastSyncedAt: r.lastSyncedAt,
+        lastWebhookAt: null,
         syncFrom: r.syncFrom,
         accounts: [],
       };
@@ -72,7 +76,22 @@ export async function listBankConnections(): Promise<BankConnectionRow[]> {
       });
     }
   }
+  const itemKey = sql<number>`(${eventLog.data}->>'item')::int`;
+  const hooks = await db
+    .select({ item: itemKey, at: max(eventLog.createdAt) })
+    .from(eventLog)
+    .where(and(eq(eventLog.groupId, groupId), eq(eventLog.source, "plaid"), eq(eventLog.kind, "webhook")))
+    .groupBy(itemKey);
+  for (const h of hooks) {
+    const item = byItem.get(Number(h.item));
+    if (item && h.at) item.lastWebhookAt = h.at;
+  }
   return [...byItem.values()];
+}
+
+/** The household's recent bank events (webhooks, syncs), newest first. */
+export async function listBankActivity(limit = 12): Promise<EventView[]> {
+  return listEvents(await requireGroupId(), { source: "plaid", limit });
 }
 
 export type BankAlert = { institutionName: string; status: string; lastError: string | null };

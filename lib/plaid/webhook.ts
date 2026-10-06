@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { plaidItems } from "@/lib/db/schema";
 import { getPlaid } from "@/lib/plaid/client";
 import { syncPlaidItem } from "@/lib/plaid/sync";
+import { logEvent } from "@/lib/events";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WEBHOOKS — Plaid calls /api/plaid/webhook when a bank login has news. Nothing
@@ -81,27 +82,66 @@ export type PlaidWebhook = {
   error?: { error_code?: string; error_message?: string; display_message?: string | null } | null;
 };
 
+/** A webhook in a few words, for the event log. */
+function describeHook(type: string | undefined, code: string | undefined): string {
+  switch (`${type}:${code}`) {
+    case "TRANSACTIONS:SYNC_UPDATES_AVAILABLE":
+      return "new activity at the bank";
+    case "ITEM:ERROR":
+      return "connection error";
+    case "ITEM:LOGIN_REPAIRED":
+      return "connection repaired";
+    case "ITEM:PENDING_DISCONNECT":
+    case "ITEM:PENDING_EXPIRATION":
+      return "will disconnect soon";
+    case "ITEM:USER_PERMISSION_REVOKED":
+    case "ITEM:USER_ACCOUNT_REVOKED":
+      return "access revoked at the bank";
+    case "ITEM:NEW_ACCOUNTS_AVAILABLE":
+      return "new accounts available";
+    case "ITEM:WEBHOOK_UPDATE_ACKNOWLEDGED":
+      return "webhook address confirmed";
+    default:
+      return `${type ?? "?"} ${code ?? "?"}`;
+  }
+}
+
 /**
- * What a verified webhook does. Syncs go through `later`, which runs them after
- * the reply: Plaid wants an answer within 10 seconds and retries otherwise.
+ * What a verified webhook does. Every one is written to the event log, which
+ * is how anyone can tell the webhooks arrive. Syncs go through `later`, which
+ * runs them after the reply: Plaid wants an answer within 10 seconds and
+ * retries otherwise.
  */
 export async function handlePlaidWebhook(
   hook: PlaidWebhook,
   later: (work: () => Promise<unknown>) => void,
 ): Promise<void> {
-  if (!hook.item_id) return;
-  const [item] = await db
-    .select({ id: plaidItems.id })
-    .from(plaidItems)
-    .where(eq(plaidItems.itemId, hook.item_id))
-    .limit(1);
+  const [item] = hook.item_id
+    ? await db
+        .select({ id: plaidItems.id, groupId: plaidItems.groupId, bank: plaidItems.institutionName })
+        .from(plaidItems)
+        .where(eq(plaidItems.itemId, hook.item_id))
+        .limit(1)
+    : [];
+  await logEvent({
+    groupId: item?.groupId ?? null,
+    source: "plaid",
+    kind: "webhook",
+    message: `${item?.bank ?? "Unknown connection"}: ${describeHook(hook.webhook_type, hook.webhook_code)}`,
+    data: {
+      item: item?.id ?? null,
+      type: hook.webhook_type ?? null,
+      code: hook.webhook_code ?? null,
+      ...(hook.error?.error_code ? { error: hook.error.error_code } : {}),
+    },
+  });
   if (!item) return;
   const setStatus = (status: string, lastError: string | null) =>
     db.update(plaidItems).set({ status, lastError }).where(eq(plaidItems.id, item.id));
 
   switch (`${hook.webhook_type}:${hook.webhook_code}`) {
     case "TRANSACTIONS:SYNC_UPDATES_AVAILABLE":
-      later(() => syncPlaidItem(item.id));
+      later(() => syncPlaidItem(item.id, "webhook"));
       return;
     case "ITEM:ERROR": {
       const message =
@@ -111,7 +151,7 @@ export async function handlePlaidWebhook(
     }
     case "ITEM:LOGIN_REPAIRED":
       await setStatus("ok", null);
-      later(() => syncPlaidItem(item.id));
+      later(() => syncPlaidItem(item.id, "webhook"));
       return;
     case "ITEM:PENDING_DISCONNECT":
     case "ITEM:PENDING_EXPIRATION":

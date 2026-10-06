@@ -3,6 +3,8 @@
 import * as React from "react";
 import { usePlaidLink } from "react-plaid-link";
 import Paper from "@mui/material/Paper";
+import Box from "@mui/material/Box";
+import Collapse from "@mui/material/Collapse";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
@@ -13,6 +15,8 @@ import MenuItem from "@mui/material/MenuItem";
 import AddIcon from "@mui/icons-material/Add";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import SyncIcon from "@mui/icons-material/Sync";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import DeleteIconButton from "@/components/shared/DeleteIconButton";
 import { formatDate } from "@/lib/format";
 import {
@@ -36,11 +40,17 @@ export type BankConnection = {
   institutionName: string;
   status: string;
   lastError: string | null;
-  lastSyncedAt: string | null;
+  /** When the last sync finished, formatted in the household's zone. */
+  lastSynced: string | null;
+  /** When Plaid last reported changes (its webhook), formatted likewise. */
+  lastWebhook: string | null;
   /** Bank transactions from this date on reach the ledger. */
   syncFrom: string;
   accounts: BankAccount[];
 };
+
+/** One line of the bank activity log (webhooks and syncs), newest first. */
+export type BankActivity = { id: number; when: string; message: string; problem: boolean };
 
 export type FeedableAccount = { id: number; name: string };
 
@@ -64,14 +74,17 @@ type Notice = { severity: "error" | "info"; text: string };
 export default function BankConnections({
   connections,
   accounts,
+  activity = [],
   canManage,
   sandbox,
 }: {
   connections: BankConnection[];
   accounts: FeedableAccount[];
+  activity?: BankActivity[];
   canManage: boolean;
   sandbox: boolean;
 }) {
+  const [showActivity, setShowActivity] = React.useState(false);
   const [linkToken, setLinkToken] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [syncingId, setSyncingId] = React.useState<number | null>(null);
@@ -205,7 +218,7 @@ export default function BankConnections({
                   <Typography sx={{ fontWeight: 500 }}>{c.institutionName}</Typography>
                   <Chip size="small" color={status.color} variant="outlined" label={status.label} />
                   <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
-                    {c.lastSyncedAt ? `synced ${formatDate(c.lastSyncedAt)}` : "not synced yet"}
+                    {c.lastSynced ? `synced ${c.lastSynced}` : "not synced yet"}
                     {` · importing from ${formatDate(c.syncFrom)}`}
                   </Typography>
                   {canManage && SYNCABLE.has(c.status) ? (
@@ -231,6 +244,11 @@ export default function BankConnections({
                     />
                   ) : null}
                 </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ pl: { sm: 3.5 }, mt: -0.75 }}>
+                  {c.lastWebhook
+                    ? `Plaid last reported changes ${c.lastWebhook}`
+                    : "Plaid has not reported changes yet"}
+                </Typography>
                 {c.lastError && c.status !== "ok" ? (
                   <Typography variant="caption" color="error">
                     {c.lastError}
@@ -274,6 +292,34 @@ export default function BankConnections({
           })}
         </Stack>
       )}
+
+      {activity.length > 0 ? (
+        <Box sx={{ mt: 2 }}>
+          <Button
+            size="small"
+            color="inherit"
+            onClick={() => setShowActivity((v) => !v)}
+            endIcon={showActivity ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          >
+            Recent bank activity
+          </Button>
+          <Collapse in={showActivity} unmountOnExit>
+            <Stack spacing={0.75} sx={{ mt: 1 }}>
+              {activity.map((e) => (
+                <Box
+                  key={e.id}
+                  sx={{ display: "grid", gridTemplateColumns: "108px minmax(0, 1fr)", columnGap: 1.5, fontSize: 13 }}
+                >
+                  <Box sx={{ color: "text.secondary", whiteSpace: "nowrap" }}>{e.when}</Box>
+                  <Box sx={{ overflowWrap: "anywhere", color: e.problem ? "error.main" : "text.primary" }}>
+                    {e.message}
+                  </Box>
+                </Box>
+              ))}
+            </Stack>
+          </Collapse>
+        </Box>
+      ) : null}
     </Paper>
   );
 }
