@@ -144,14 +144,14 @@ export async function afterSignIn(accountId: number, from: string, method: "pass
       ),
     )
     .limit(1);
-  if (unseen) return "/group#sign-in";
+  if (unseen) return "/group?tab=sign-in";
   if (method === "password") {
     const [key] = await db
       .select({ id: passkeys.id })
       .from(passkeys)
       .where(eq(passkeys.accountId, accountId))
       .limit(1);
-    if (!key) return `/group?nudge=1&next=${encodeURIComponent(dest)}#sign-in`;
+    if (!key) return `/group?tab=sign-in&nudge=1&next=${encodeURIComponent(dest)}`;
   }
   return dest;
 }

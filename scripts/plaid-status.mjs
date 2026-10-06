@@ -25,7 +25,7 @@ async function main() {
   console.log(`database host: ${new URL(url).hostname}\n`);
 
   const items = await sql`
-    SELECT id, group_id, institution_name, status, last_error, sync_from::text AS sync_from,
+    SELECT id, group_id, institution_name, environment, status, last_error, sync_from::text AS sync_from,
            to_char(last_synced_at AT TIME ZONE 'America/Chicago', 'Mon DD HH24:MI') AS last_synced,
            (SELECT to_char(max(e.created_at) AT TIME ZONE 'America/Chicago', 'Mon DD HH24:MI') FROM event_log e
              WHERE e.source = 'plaid' AND e.kind = 'webhook' AND (e.data->>'item')::int = plaid_items.id) AS last_webhook,

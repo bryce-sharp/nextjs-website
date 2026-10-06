@@ -3,7 +3,14 @@ import { and, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { AccountBase, RemovedTransaction, Transaction } from "plaid";
 import { db } from "@/lib/db";
 import { eventLog, plaidAccounts, plaidItems, plaidTransactions, type PlaidItem } from "@/lib/db/schema";
-import { getPlaid, plaidConfigured, plaidErrorCode, plaidErrorMessage } from "@/lib/plaid/client";
+import {
+  getPlaid,
+  otherEnvironmentNote,
+  plaidConfigured,
+  plaidEnv,
+  plaidErrorCode,
+  plaidErrorMessage,
+} from "@/lib/plaid/client";
 import { decryptToken } from "@/lib/plaid/crypto";
 import { applyPlaidItem, type ApplyStats } from "@/lib/plaid/apply";
 import { logEvent } from "@/lib/events";
@@ -184,6 +191,8 @@ export async function syncPlaidItem(plaidItemId: number, trigger: SyncTrigger = 
   const outcome = await withLease(plaidItemId, async (): Promise<SyncOutcome> => {
     const [item] = await db.select().from(plaidItems).where(eq(plaidItems.id, plaidItemId)).limit(1);
     if (!item) return { ok: false, error: "That bank connection no longer exists." };
+    const elsewhere = otherEnvironmentNote(item.environment);
+    if (elsewhere) return { ok: false, error: elsewhere };
     const result = await syncItem(item);
     await logEvent({
       groupId: item.groupId,
@@ -283,7 +292,7 @@ export async function staleBanks(groupId: number): Promise<number[]> {
       lockedUntil: plaidItems.syncLockedUntil,
     })
     .from(plaidItems)
-    .where(eq(plaidItems.groupId, groupId));
+    .where(and(eq(plaidItems.groupId, groupId), eq(plaidItems.environment, plaidEnv())));
   const candidates = items.filter(
     (i) =>
       SYNCABLE.has(i.status) &&

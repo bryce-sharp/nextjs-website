@@ -11,6 +11,7 @@ import {
   plaidItems,
   plaidTransactions,
   transactions,
+  type PlaidItem,
 } from "@/lib/db/schema";
 import { requireOwner } from "@/lib/auth";
 import { getGroupTimezone } from "@/lib/queries/group";
@@ -18,7 +19,9 @@ import { getPlaidItemForGroup } from "@/lib/queries/finance-plaid";
 import { currentMonthISO } from "@/lib/finance/parse";
 import {
   getPlaid,
+  otherEnvironmentNote,
   plaidConfigured,
+  plaidEnv,
   plaidErrorCode,
   plaidErrorMessage,
 } from "@/lib/plaid/client";
@@ -76,6 +79,17 @@ async function requireBankAdmin(): Promise<number> {
   return session.groupId;
 }
 
+/**
+ * One of the group's bank logins, refused when it was made in the other Plaid
+ * environment (dev holds copies of live's real logins and must not touch them).
+ */
+async function usableItem(plaidItemId: number, groupId: number): Promise<PlaidItem | { error: string }> {
+  const item = await getPlaidItemForGroup(plaidItemId, groupId);
+  if (!item) return { error: "That bank connection no longer exists." };
+  const elsewhere = otherEnvironmentNote(item.environment);
+  return elsewhere ? { error: elsewhere } : item;
+}
+
 const money = (n: number | null | undefined) => (n == null ? null : n.toFixed(2));
 
 function balanceFields(a: AccountBase) {
@@ -97,8 +111,8 @@ export async function createLinkTokenAction(
   const groupId = await requireBankAdmin();
   let accessToken: string | null = null;
   if (plaidItemId !== null) {
-    const item = await getPlaidItemForGroup(plaidItemId, groupId);
-    if (!item) return { error: "That bank connection no longer exists." };
+    const item = await usableItem(plaidItemId, groupId);
+    if ("error" in item) return item;
     accessToken = decryptToken(item.accessTokenEnc);
   }
   try {
@@ -147,6 +161,7 @@ export async function connectBankAction(
       .values({
         groupId,
         itemId: data.item_id,
+        environment: plaidEnv(),
         accessTokenEnc: encryptToken(accessToken),
         institutionName: "Bank",
         syncFrom: currentMonthISO(tz),
@@ -191,6 +206,7 @@ export async function connectBankAction(
             .where(
               and(
                 eq(plaidItems.groupId, groupId),
+                eq(plaidItems.environment, plaidEnv()),
                 eq(plaidItems.institutionId, institutionId),
                 ne(plaidItems.id, itemRowId),
               ),
@@ -249,12 +265,15 @@ export async function mapBankAccountAction(
       id: plaidAccounts.id,
       plaidItemId: plaidAccounts.plaidItemId,
       previous: plaidAccounts.financialAccountId,
+      environment: plaidItems.environment,
     })
     .from(plaidAccounts)
     .innerJoin(plaidItems, eq(plaidAccounts.plaidItemId, plaidItems.id))
     .where(and(eq(plaidAccounts.id, plaidAccountId), eq(plaidItems.groupId, groupId)))
     .limit(1);
   if (!bankAccount) return { error: "That bank account no longer exists." };
+  const elsewhere = otherEnvironmentNote(bankAccount.environment);
+  if (elsewhere) return { error: elsewhere };
 
   if (financialAccountId !== null) {
     const [target] = await db
@@ -337,8 +356,8 @@ export async function syncBankAction(
   plaidItemId: number,
 ): Promise<{ ok: true; summary: string } | { error: string }> {
   const groupId = await requireBankAdmin();
-  const item = await getPlaidItemForGroup(plaidItemId, groupId);
-  if (!item) return { error: "That bank connection no longer exists." };
+  const item = await usableItem(plaidItemId, groupId);
+  if ("error" in item) return item;
   const outcome = await syncPlaidItem(item.id, "manual");
   revalidateFinance();
   return outcome.ok ? { ok: true, summary: describe(outcome) } : { error: describe(outcome) };
@@ -349,8 +368,8 @@ export async function markBankRepairedAction(
   plaidItemId: number,
 ): Promise<{ ok: true; summary: string } | { error: string }> {
   const groupId = await requireBankAdmin();
-  const item = await getPlaidItemForGroup(plaidItemId, groupId);
-  if (!item) return { error: "That bank connection no longer exists." };
+  const item = await usableItem(plaidItemId, groupId);
+  if ("error" in item) return item;
   await db
     .update(plaidItems)
     .set({ status: "ok", lastError: null })
@@ -372,6 +391,8 @@ export async function disconnectBankAction(
   const groupId = await requireBankAdmin();
   const item = await getPlaidItemForGroup(plaidItemId, groupId);
   if (!item) return;
+  const elsewhere = otherEnvironmentNote(item.environment);
+  if (elsewhere) throw new Error(elsewhere);
   try {
     await getPlaid().itemRemove({ access_token: decryptToken(item.accessTokenEnc) });
   } catch (err) {

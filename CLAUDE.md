@@ -30,6 +30,8 @@ Working rules for Claude Code in this repository. Laptop setup for people is in
 - Plaid: `PLAID_CLIENT_KEY`; `PLAID_SANDBOX_SECRET` or `PLAID_PRODUCTION_SECRET`, chosen
   by `PLAID_ENV`; `PLAID_TOKEN_KEY` (encrypts stored bank tokens: never change it once
   banks are connected); `PLAID_WEBHOOK_URL`; `CRON_SECRET`. The live site refuses Sandbox.
+- `SITE_ADMINS`: comma-separated usernames (today `bstocksharp`) who also see site events
+  (those with no household) on the Activity tab of /group. It grants no household data.
 
 ## Plaid bank sync
 
@@ -40,6 +42,9 @@ Working rules for Claude Code in this repository. Laptop setup for people is in
   linking again.
 - The ledger row is the household's: syncs only refresh bank-owned fields, and deleted
   rows stay deleted (`plaid_transactions.dismissed_at`).
+- Dev holds copies of live's real bank logins after every reset. `plaid_items.environment`
+  keeps each deployment to logins of its own `PLAID_ENV`; leave the copies alone (never
+  disconnect them from dev).
 - Read-only checks (add `node scripts/live.mjs` in front for live): `plaid-status.mjs`
   (sync health), `bill-audit.mjs` (bill patterns against the bank's own text; `--try`
   tests a pattern before it is added). `plaid-reapply.mjs` takes a bank-created row back
@@ -56,6 +61,9 @@ Working rules for Claude Code in this repository. Laptop setup for people is in
   (it never throws). Plaid webhooks and syncs (with their trigger) are logged today; the
   daily cron prunes rows older than 180 days. Server logs on the Hobby plan last an hour,
   so record anything you will want to check later here.
+- Give each event its household (`groupId`); null means a site event, which only site
+  admins see. Record a failure with `data.ok = false` or a kind ending in `_rejected` or
+  `_failed`, so the Activity tab on /group shows it in red.
 
 ## Checking app code without the server
 

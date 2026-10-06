@@ -28,8 +28,9 @@ the Chase card, and replaces hand entry for Ally Checking and Ally Savings._
   page is sent, which then re-renders itself; a bank tried in the last half hour waits).
 - **Event log:** every webhook (including ones that fail the signature check) and
   every sync, with what started it, goes to `event_log` (`lib/events.ts`). Finance,
-  Settings shows each bank's last webhook and the recent activity;
-  `plaid-status.mjs` and `finance-check.mjs` report them too.
+  Settings shows each bank's last webhook and the recent activity; the owner sees the
+  whole log on the Activity tab of /group; `plaid-status.mjs` and `finance-check.mjs`
+  report them too.
 
 ## Ledger rules
 
@@ -116,6 +117,14 @@ Local work points `POSTGRES_URL` and `POSTGRES_URL_NON_POOLING` (the only databa
 variables the code reads) at the Neon `dev` branch, a child of `main`, so Sandbox's
 fake transactions never reach the real ledger. "Reset from parent" in the Neon
 console refreshes it with current production data.
+
+A reset also copies live's real bank logins into dev. `plaid_items.environment`
+records the Plaid environment each login was made in, and a deployment only syncs,
+repairs, maps, or disconnects logins of its own `PLAID_ENV`: the page-open refresh,
+the cron, and every bank action skip or refuse the others, and Finance, Settings
+hides them behind a one-line note. Their data stays on dev for testing; do not delete
+them (the next reset brings them back) and never disconnect them (that would revoke
+the live connection).
 
 ## Plaid Trial constraints
 

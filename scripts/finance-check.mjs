@@ -42,7 +42,7 @@ async function checkGroup(groupId) {
   console.log("\n1. BANK SYNC");
   console.table(
     await sql`
-      SELECT id, institution_name AS bank, status, last_error,
+      SELECT id, institution_name AS bank, environment, status, last_error,
              to_char(last_synced_at AT TIME ZONE ${g.timezone}, 'Mon DD HH24:MI') AS last_synced,
              cursor IS NOT NULL AS has_position
       FROM plaid_items WHERE group_id = ${groupId} ORDER BY id`,

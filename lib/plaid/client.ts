@@ -17,6 +17,28 @@ export function plaidEnv(): PlaidEnv {
   return process.env.PLAID_ENV === "production" ? "production" : "sandbox";
 }
 
+/**
+ * Why a bank login from the other Plaid environment is left alone here, or
+ * null when it belongs to this deployment. Dev runs Sandbox and is reset from
+ * live, so it holds copies of live's Production logins; syncing, repairing, or
+ * disconnecting one from dev would act on the real connection.
+ */
+export function otherEnvironmentNote(environment: string): string | null {
+  if (environment === plaidEnv()) return null;
+  return environment === "production"
+    ? "Connected on the live site, which syncs it. This copy leaves it alone."
+    : "A Plaid Sandbox test login. This site runs Production and leaves it alone.";
+}
+
+/** One sentence for the Connections page about the other environment's logins it leaves out. */
+export function hiddenLoginsNote(names: string[]): string | null {
+  if (names.length === 0) return null;
+  const list = names.join(", ");
+  return plaidEnv() === "sandbox"
+    ? `Also in this copy from the live site: ${list}. The live site syncs ${names.length === 1 ? "it" : "them"}, so ${names.length === 1 ? "it is" : "they are"} hidden here; the data stays for testing.`
+    : `Plaid Sandbox test logins in this database are hidden: ${list}.`;
+}
+
 function plaidSecret(): string | undefined {
   return plaidEnv() === "production"
     ? process.env.PLAID_PRODUCTION_SECRET
