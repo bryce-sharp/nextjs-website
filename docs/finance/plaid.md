@@ -27,7 +27,10 @@ the Chase card, and replaces hand entry for Ally Checking and Ally Savings._
   Budget or History opens while a bank's data is over 3 hours old (synced after the
   page is sent, which then re-renders itself; a bank tried in the last half hour waits).
 - **Event log:** every webhook (including ones that fail the signature check) and
-  every sync, with what started it, goes to `event_log` (`lib/events.ts`). Finance,
+  every sync, with what started it, goes to `event_log` (`lib/events.ts`). The
+  exception is Plaid's older-format transaction notices (`DEFAULT_UPDATE`,
+  `TRANSACTIONS_REMOVED`, and the rest), which it still sends beside
+  `SYNC_UPDATES_AVAILABLE`: they are acknowledged and not logged. Finance,
   Settings shows each bank's last webhook and the recent activity; the owner sees the
   whole log on the Activity tab of /group; `plaid-status.mjs` and `finance-check.mjs`
   report them too.

@@ -106,16 +106,21 @@ function describeHook(type: string | undefined, code: string | undefined): strin
   }
 }
 
+// Older-format notices Plaid still sends beside SYNC_UPDATES_AVAILABLE; a
+// /transactions/sync integration does not need them, so they are not logged.
+const LEGACY_TRANSACTIONS = new Set(["INITIAL_UPDATE", "HISTORICAL_UPDATE", "DEFAULT_UPDATE", "TRANSACTIONS_REMOVED"]);
+
 /**
- * What a verified webhook does. Every one is written to the event log, which
- * is how anyone can tell the webhooks arrive. Syncs go through `later`, which
- * runs them after the reply: Plaid wants an answer within 10 seconds and
- * retries otherwise.
+ * What a verified webhook does. Every one the app acts on is written to the
+ * event log, which is how anyone can tell the webhooks arrive. Syncs go
+ * through `later`, which runs them after the reply: Plaid wants an answer
+ * within 10 seconds and retries otherwise.
  */
 export async function handlePlaidWebhook(
   hook: PlaidWebhook,
   later: (work: () => Promise<unknown>) => void,
 ): Promise<void> {
+  if (hook.webhook_type === "TRANSACTIONS" && LEGACY_TRANSACTIONS.has(hook.webhook_code ?? "")) return;
   const [item] = hook.item_id
     ? await db
         .select({ id: plaidItems.id, groupId: plaidItems.groupId, bank: plaidItems.institutionName })
