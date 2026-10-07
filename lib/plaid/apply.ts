@@ -154,6 +154,7 @@ export async function applyPlaidItem(plaidItemId: number): Promise<ApplyStats> {
       pfcDetailed: r.pfcDetailed,
       accountType: r.accountType,
       name: r.name,
+      statementText: r.statementText,
     });
 
   // Rows a bank transaction may claim: not from a bank feed, not already owned

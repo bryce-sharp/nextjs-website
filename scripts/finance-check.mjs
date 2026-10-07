@@ -98,6 +98,18 @@ async function checkGroup(groupId) {
   console.log(verdict(r.stray_fund, "fund links only on fund purchases and income", "{n} rows carry a fund their lane ignores"));
   console.log(verdict(r.bad_transfer, "every transfer names its accounts", "{n} transfers have no account or the same account twice"));
   console.log(verdict(r.review, "nothing waits in Needs review", "{n} rows wait in Needs review"));
+  // The card's side of a payment is money in on a credit account; it must never be a ledger row.
+  const cardPayments = await sql`
+    SELECT t.posted_on::text AS date, t.merchant, t.amount::text AS amount, t.category, pt.pfc_detailed AS plaid
+    FROM transactions t
+    JOIN plaid_transactions pt ON pt.ledger_transaction_id = t.id AND pt.removed_at IS NULL
+    JOIN plaid_accounts pa ON pa.id = pt.plaid_account_id
+    WHERE t.group_id = ${groupId} AND pa.type = 'credit' AND pt.amount < 0
+      AND (pt.pfc_primary IN ('TRANSFER_IN', 'LOAN_PAYMENTS', 'LOAN_DISBURSEMENTS')
+           OR pt.name ~* '\m(payment|pymt|autopay)\M')
+    ORDER BY t.posted_on`;
+  console.log(verdict(cardPayments.length, "no card payment reached the ledger", "{n} card payments reached the ledger as rows"));
+  if (cardPayments.length) console.table(cardPayments);
   const unplaced = await sql`
     SELECT t.posted_on::text AS date, t.merchant, t.amount::text AS amount, t.category, coalesce(b.name, '(no bill)') AS bill
     FROM transactions t LEFT JOIN recurring_expenses b ON b.id = t.recurring_expense_id

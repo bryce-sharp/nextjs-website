@@ -18,19 +18,29 @@ export type BankKindFacts = {
   pfcDetailed: string | null;
   accountType: string;
   name?: string;
+  /** The bank's own statement text (Plaid's original_description). */
+  statementText?: string | null;
 };
 
 // A deposit that says it is pay is income even when the category disagrees,
 // so a mislabeled paycheck can never land as a giant "refund" against spending.
 const PAYROLL = /\b(payroll|direct dep|dir dep)\b/i;
 
+// The card's side of a payment, by the wording issuers use ("Payment Thank You",
+// "ONLINE PAYMENT", "AUTOPAY"), for when the category says otherwise.
+const CARD_PAYMENT = /\b(payment|pymt|autopay)\b/i;
+
+// Categories Plaid gives the card's side of a payment (Chase's arrives as a loan disbursement).
+const PAYMENT_IN = new Set(["TRANSFER_IN", "LOAN_PAYMENTS", "LOAN_DISBURSEMENTS"]);
+
 export function bankKind(t: BankKindFacts): BankKind {
   const primary = t.pfcPrimary ?? "";
   const detailed = t.pfcDetailed ?? "";
   if (detailed === "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT") return "skip";
   // The card's side of a payment ("Payment Thank You") is money in on a credit account.
-  if (t.accountType === "credit" && t.amount < 0 && (primary === "TRANSFER_IN" || primary === "LOAN_PAYMENTS")) {
-    return "skip";
+  if (t.accountType === "credit" && t.amount < 0) {
+    if (PAYMENT_IN.has(primary)) return "skip";
+    if (CARD_PAYMENT.test(`${t.name ?? ""} ${t.statementText ?? ""}`)) return "skip";
   }
   // Deposited checks and cash land as income; the household re-files a payback.
   if (t.amount < 0 && (primary === "INCOME" || detailed === "TRANSFER_IN_DEPOSIT" || PAYROLL.test(t.name ?? ""))) {
