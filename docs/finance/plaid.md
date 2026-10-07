@@ -49,7 +49,10 @@ Plaid's sign matches the ledger (positive = money out).
   stays real-time. When the posted row arrives (`pending_transaction_id`), the same
   ledger row updates in place: household edits are kept, and the amount follows
   the bank only while the household has not adjusted it (`amount = original_amount`).
-- **Card payments** (`LOAN_PAYMENTS_CREDIT_CARD_PAYMENT`) never reach the ledger, as today.
+- **Card payments** never reach the ledger: the bank side (`LOAN_PAYMENTS_CREDIT_CARD_PAYMENT`)
+  and the card side, which is money in on a credit account that Plaid files under
+  `TRANSFER_IN`, `LOAN_PAYMENTS`, or, for Chase's "Payment Thank You", `LOAN_DISBURSEMENTS`, or
+  whose text says payment, `PYMT`, or `AUTOPAY`. `finance-check.mjs` flags any that slip in.
 - **Venmo and Cash App payments** (`TRANSFER_OUT_*_FROM_APPS`) are spending, matching the
   wallet rule; money received through those apps lands in Needs review.
 - **Deposited checks and cash** (`TRANSFER_IN_DEPOSIT`) are income.

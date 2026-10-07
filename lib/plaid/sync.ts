@@ -230,6 +230,7 @@ function describeOutcome(r: SyncOutcome): string {
     a.updated ? `${a.updated} updated` : null,
     a.removed ? `${a.removed} removed` : null,
     a.review ? `${a.review} to review` : null,
+    a.skipped ? `${a.skipped} card payment${a.skipped === 1 ? "" : "s"} skipped` : null,
   ].filter(Boolean);
   return parts.length ? parts.join(", ") : "no changes";
 }
